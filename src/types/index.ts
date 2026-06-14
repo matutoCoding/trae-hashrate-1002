@@ -204,3 +204,54 @@ export interface CorrectionContext {
   currentIndex?: number;
   totalCount?: number;
 }
+
+/**
+ * 工坊任务单
+ * 组合模板、用料方案、工序卡片的可打印生产单
+ */
+export interface WorkshopTask {
+  id: string;
+  taskNo: string;
+  createdAt: number;
+  template: PatternTemplate;
+  materialPlan: MaterialPlan | null;
+  stepDetails: WeaveStepDetail[];
+  validationResult: ValidationResult | null;
+  notes?: string;
+}
+
+/**
+ * 任务单导出格式
+ */
+export interface TaskExportData {
+  taskNo: string;
+  templateName: string;
+  patternType: string;
+  materialPlanName: string;
+  params: WeaveParams;
+  summary: {
+    totalCount: number;
+    totalLengthM: number;
+    warpCount: number;
+    weftCount: number;
+    totalMinutes: number;
+    errorCount: number;
+    warningCount: number;
+  };
+  steps: Array<{
+    stepIndex: number;
+    instruction: string;
+    materials: Array<{
+      spec: string;
+      color: string;
+      widthMm: number;
+      lengthMm: number;
+      count: number;
+    }>;
+    estimatedMinutes: number;
+    difficulty: number;
+    tips: string[];
+  }>;
+  materials: MaterialItem[];
+  exportTime: number;
+}
