@@ -507,23 +507,48 @@ export default function WeaveCoding() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-song text-bambooBrown-700 font-semibold">配色错位预警</span>
+                <span className="text-sm font-song text-bambooBrown-700 font-semibold">异常位置汇总</span>
                 {(() => {
-                  const colorErrors = (validationResult?.errors || []).filter(e => e.type === 'color_shift');
-                  const colorWarnings = (validationResult?.warnings || []).filter(w => w.type === 'color_shift');
-                  const total = colorErrors.length + colorWarnings.length;
-                  return total > 0 ? (
-                    <span className="px-2 py-0.5 rounded-full bg-warning text-white text-xs font-kai">
-                      {total} 处异常
-                    </span>
-                  ) : null;
+                  const errors = (validationResult?.errors || []).filter(e => e.row !== undefined || e.col !== undefined);
+                  const warnings = (validationResult?.warnings || []).filter(w => w.row !== undefined || w.col !== undefined);
+                  const total = errors.length + warnings.length;
+                  if (total > 0) {
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        {errors.length > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-warning text-white text-xs font-kai">
+                            错误 {errors.length}
+                          </span>
+                        )}
+                        {warnings.length > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-bamboo-500 text-white text-xs font-kai">
+                            警告 {warnings.length}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
                 })()}
               </div>
               {(() => {
-                const colorErrors = (validationResult?.errors || []).filter(e => e.type === 'color_shift');
-                const colorWarnings = (validationResult?.warnings || []).filter(w => w.type === 'color_shift');
-                const allColorIssues = [...colorErrors, ...colorWarnings];
-                const hasIssue = allColorIssues.length > 0;
+                const errors = (validationResult?.errors || []).filter(e => e.row !== undefined || e.col !== undefined);
+                const warnings = (validationResult?.warnings || []).filter(w => w.row !== undefined || w.col !== undefined);
+                const allIssues = [...errors.map(e => ({ ...e, level: 'error' })), ...warnings.map(w => ({ ...w, level: 'warning' }))];
+                const hasIssue = allIssues.length > 0;
+
+                const getTypeLabel = (type: string) => {
+                  const labelMap: Record<string, string> = {
+                    'open_end': '散口风险',
+                    'misalignment': '挑压错位',
+                    'color_shift': '配色不一致',
+                    'dense_pattern': '密集模式',
+                    'consecutive_same': '连续同态',
+                    'block_same': '区块同态',
+                    'edge_unstable': '边缘不稳',
+                  };
+                  return labelMap[type] || type;
+                };
 
                 return (
                   <div className={`rounded-lg border overflow-hidden ${
@@ -535,37 +560,54 @@ export default function WeaveCoding() {
                           <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
                           <div className="flex-1">
                             <p className="text-sm font-song text-warning-dark font-semibold">
-                              检测到 {allColorIssues.length} 处配色错位
+                              检测到 {allIssues.length} 处异常位置
                             </p>
                             <p className="text-xs font-kai text-bambooBrown-600 mt-0.5">
-                              相同挑压状态的相邻区域配色不一致，可能导致露色错位
+                              包含散口、挑压错位、配色错位等问题，建议逐个修正
                             </p>
                           </div>
                         </div>
-                        <div className="max-h-[200px] overflow-y-auto divide-y divide-warning/10">
-                          {allColorIssues.map((issue, idx) => (
-                            <div key={`color-${idx}`} className="p-2.5 hover:bg-warning/10 transition-colors">
+                        <div className="max-h-[280px] overflow-y-auto divide-y divide-warning/10">
+                          {allIssues.map((issue, idx) => (
+                            <div key={`issue-${idx}`} className={`p-2.5 hover:bg-warning/10 transition-colors ${
+                              issue.level === 'error' ? 'bg-warning/5' : ''
+                            }`}>
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     {(issue.row !== undefined || issue.col !== undefined) && (
-                                      <span className="px-1.5 py-0.5 rounded bg-warning/15 text-warning-dark text-[10px] font-bold font-kai">
-                                        位置: {issue.row !== undefined ? `行${issue.row + 1}` : ''}
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-kai ${
+                                        issue.level === 'error'
+                                          ? 'bg-warning/20 text-warning-dark'
+                                          : 'bg-bamboo-200/60 text-bamboo-700'
+                                      }`}>
+                                        📍 位置: {issue.row !== undefined ? `行${issue.row + 1}` : ''}
                                         {issue.row !== undefined && issue.col !== undefined ? '，' : ''}
                                         {issue.col !== undefined ? `列${issue.col + 1}` : ''}
                                       </span>
                                     )}
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-bambooBrown-100 text-bambooBrown-700 font-kai">
-                                      {issue.type === 'color_shift' ? '配色不一致' : issue.type}
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-kai ${
+                                      issue.type === 'color_shift'
+                                        ? 'bg-bamboo-100 text-bamboo-700'
+                                        : issue.type === 'open_end'
+                                        ? 'bg-warning/15 text-warning-dark'
+                                        : issue.type === 'misalignment'
+                                        ? 'bg-bambooBrown-100 text-bambooBrown-700'
+                                        : 'bg-bambooCream-200 text-bambooBrown-700'
+                                    }`}>
+                                      {getTypeLabel(issue.type)}
                                     </span>
                                   </div>
                                   <p className="text-xs font-song text-bambooBrown-700 mt-1">{issue.message}</p>
                                   {issue.suggestion && (
-                                    <p className="text-[10px] font-kai text-bambooGreen-700 mt-0.5">
+                                    <p className="text-[10px] font-kai text-bambooGreen-700 mt-1">
                                       💡 {issue.suggestion}
                                     </p>
                                   )}
                                 </div>
+                                {issue.level === 'error' && (
+                                  <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-warning mt-1.5 animate-pulse-soft" />
+                                )}
                               </div>
                             </div>
                           ))}
@@ -575,7 +617,7 @@ export default function WeaveCoding() {
                       <div className="p-3 flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 text-bambooGreen-600" />
                         <p className="text-sm font-song text-bambooGreen-700">
-                          配色一致性良好，未检测到错位
+                          未检测到异常位置，挑压结构良好
                         </p>
                       </div>
                     )}

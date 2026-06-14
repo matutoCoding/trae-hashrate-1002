@@ -75,12 +75,27 @@ export default function MaterialList() {
   });
 
   useEffect(() => {
+    // 如果 store 中已有计算结果，直接使用
     if (materials.length > 0) {
       setLocalMaterials(materials);
     } else {
-      setLocalMaterials(buildDefaultMaterials(weaveParams));
+      // 否则根据当前参数构建默认材料，并触发 store 计算
+      const defaults = buildDefaultMaterials(weaveParams);
+      setLocalMaterials(defaults);
+      calculateMaterials();
     }
-  }, [materials, weaveParams]);
+  }, [materials, weaveParams, calculateMaterials]);
+
+  // 确保页面加载时就有正确数据
+  useEffect(() => {
+    if (localMaterials.length === 0) {
+      const defaults = buildDefaultMaterials(weaveParams);
+      setLocalMaterials(defaults);
+      if (materials.length === 0) {
+        calculateMaterials();
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo<MaterialGroupData[]>(() => {
     const warpItems = localMaterials.filter((m) => m.spec.includes('经篾'));

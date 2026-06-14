@@ -26,6 +26,90 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
+function genThumbSvg(pattern: string): string {
+  const cellSize = 15; const gridSize = 8; let rects = '';
+  for (let r = 0; r < gridSize; r++) for (let c = 0; c < gridSize; c++) {
+    let isPick = false;
+    if (pattern === 'plain') isPick = (r + c) % 2 === 0;
+    else if (pattern === 'hexagon') isPick = (r * 2 + c) % 3 === 0;
+    else if (pattern === 'cross') isPick = r % 2 === 0 || c % 2 === 0;
+    else if (pattern === 'herringbone') isPick = (r + Math.floor(c / 2)) % 2 === 0;
+    else isPick = (r * c) % 2 === 0;
+    const fill = isPick ? '#5B9D57' : '#D2BE80';
+    const stroke = isPick ? '#476E46' : '#A88B3D';
+    rects += `<rect x="${c * cellSize}" y="${r * cellSize}" width="${cellSize - 1}" height="${cellSize - 1}" rx="1" fill="${fill}" stroke="${stroke}" stroke-opacity="0.3"/>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="120" height="120" fill="#F8F3E3" rx="4"/>${rects}</svg>`;
+}
+
+function genMatrix(rows: number, cols: number, pattern: string): WeaveMatrix {
+  const warpCodes: WeaveCell[][] = [];
+  const weftCodes: WeaveCell[][] = [];
+  for (let r = 0; r < rows; r++) {
+    const warpRow: WeaveCell[] = [];
+    const weftRow: WeaveCell[] = [];
+    for (let c = 0; c < cols; c++) {
+      let val: WeaveCell = 0;
+      switch (pattern) {
+        case 'plain': val = ((r + c) % 2) as WeaveCell; break;
+        case 'hexagon': val = (((r * 2 + c) % 3) === 0 ? 1 : 0) as WeaveCell; break;
+        case 'cross': val = ((r % 2 === 0 || c % 2 === 0) ? 1 : 0) as WeaveCell; break;
+        case 'herringbone': val = (((r + Math.floor(c / 2)) % 2) as WeaveCell); break;
+        default: val = ((r * c) % 2) as WeaveCell; break;
+      }
+      warpRow.push(val);
+      weftRow.push((val === 1 ? 0 : 1) as WeaveCell);
+    }
+    warpCodes.push(warpRow);
+    weftCodes.push(weftRow);
+  }
+  return { rows, cols, cellSize: 16, warpCodes, weftCodes,
+    detectedPatterns: [{ type: pattern as any, startRow: 0, startCol: 0, width: cols, height: rows }] };
+}
+
+function buildDefaultTemplates(): PatternTemplate[] {
+  const now = Date.now();
+  return [
+    { id: 'default-hexagon', name: '经典六角孔', patternType: 'hexagon', difficulty: 3, thumbnail: genThumbSvg('hexagon'),
+      tags: ['传统', '透气', '基础'], description: '传统六角孔编织纹样，结构稳定，透气性好，常用于竹篮、筐篓等日常器具。',
+      weaveMatrix: genMatrix(12, 12, 'hexagon'), layers: [], materials: [],
+      params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+      createdAt: now - 5 * 86400000, updatedAt: now - 5 * 86400000 },
+    { id: 'default-cross', name: '十字孔花编', patternType: 'cross', difficulty: 2, thumbnail: genThumbSvg('cross'),
+      tags: ['入门', '简洁', '装饰'], description: '十字形孔洞编织，结构简洁，视觉效果分明，适合入门练习。',
+      weaveMatrix: genMatrix(10, 10, 'cross'), layers: [], materials: [],
+      params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+      createdAt: now - 4 * 86400000, updatedAt: now - 4 * 86400000 },
+    { id: 'default-herringbone', name: '人字编纹样', patternType: 'herringbone', difficulty: 4, thumbnail: genThumbSvg('herringbone'),
+      tags: ['工艺', '纹理', '高级'], description: '人字形交错编织，纹理流畅如行云流水，常用于高级竹编工艺品。',
+      weaveMatrix: genMatrix(16, 12, 'herringbone'), layers: [], materials: [],
+      params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+      createdAt: now - 3 * 86400000, updatedAt: now - 3 * 86400000 },
+    { id: 'default-plain', name: '平编基础款', patternType: 'plain', difficulty: 1, thumbnail: genThumbSvg('plain'),
+      tags: ['入门', '基础', '教学'], description: '最基础的一挑一压平编技法，是所有竹编的入门基础。',
+      weaveMatrix: genMatrix(8, 8, 'plain'), layers: [], materials: [],
+      params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+      createdAt: now - 2 * 86400000, updatedAt: now - 2 * 86400000 },
+    { id: 'default-hexagon2', name: '六角孔变体', patternType: 'hexagon', difficulty: 4, thumbnail: genThumbSvg('hexagon'),
+      tags: ['变体', '层次', '创意'], description: '在传统六角孔基础上加入变化元素，形成更富层次感的编织纹样。',
+      weaveMatrix: genMatrix(14, 14, 'hexagon'), layers: [], materials: [],
+      params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+      createdAt: now - 1 * 86400000, updatedAt: now - 1 * 86400000 },
+    { id: 'default-custom', name: '自定义组合纹', patternType: 'custom', difficulty: 5, thumbnail: genThumbSvg('custom'),
+      tags: ['创意', '组合', '大师级'], description: '融合多种编法的自定义组合纹样，考验编织技巧与创意设计。',
+      weaveMatrix: genMatrix(16, 16, 'custom'), layers: [], materials: [],
+      params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+      createdAt: now, updatedAt: now },
+  ];
+}
+
+function ensureDefaultTemplates(templates: PatternTemplate[]): PatternTemplate[] {
+  const defaults = buildDefaultTemplates();
+  const existingIds = new Set(templates.map(t => t.id));
+  const missingDefaults = defaults.filter(d => !existingIds.has(d.id));
+  return [...templates, ...missingDefaults];
+}
+
 interface WeaveStoreState {
   currentTemplate: PatternTemplate | null;
   weaveMatrix: WeaveMatrix | null;
@@ -97,6 +181,8 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
     set((state) => ({
       weaveParams: { ...state.weaveParams, ...params },
     }));
+    // 参数变化后自动重新计算材料
+    get().calculateMaterials();
   },
 
   runValidation: () => {
@@ -328,7 +414,22 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
   calculateMaterials: () => {
     const { weaveMatrix, weaveParams } = get();
     if (!weaveMatrix) {
-      set({ materials: [] });
+      const { bambooWidth, bambooGap, finishedWidth, finishedHeight, lossRate } = weaveParams;
+      const unitLength = bambooWidth + bambooGap;
+      const warpCount = Math.max(8, Math.ceil(finishedWidth / unitLength));
+      const weftCount = Math.max(8, Math.ceil(finishedHeight / unitLength));
+      const warpLength = Math.ceil(finishedHeight * lossRate);
+      const weftLength = Math.ceil(finishedWidth * lossRate);
+      const defaultMaterials: MaterialItem[] = [
+        { id: generateId(), spec: '经篾-主骨架', color: '本色', widthMm: bambooWidth, lengthMm: warpLength, count: Math.floor(warpCount * 0.7), processIndex: 0 },
+        { id: generateId(), spec: '经篾-加强', color: '碳化', widthMm: bambooWidth + 1, lengthMm: warpLength, count: Math.max(4, Math.floor(warpCount * 0.2)), processIndex: 0 },
+        { id: generateId(), spec: '经篾-边框', color: '本色', widthMm: bambooWidth + 3, lengthMm: Math.ceil(warpLength * 1.05), count: 4, processIndex: 0 },
+        { id: generateId(), spec: '纬篾-基础', color: '本色', widthMm: bambooWidth, lengthMm: weftLength, count: Math.floor(weftCount * 0.7), processIndex: 1 },
+        { id: generateId(), spec: '纬篾-花纹', color: '竹青', widthMm: Math.max(2, bambooWidth - 1), lengthMm: weftLength, count: Math.max(4, Math.floor(weftCount * 0.3)), processIndex: 1 },
+        { id: generateId(), spec: '收边篾', color: '碳化', widthMm: bambooWidth + 1, lengthMm: Math.ceil(Math.max(finishedWidth, finishedHeight) * lossRate * 1.1), count: 8, processIndex: 2 },
+        { id: generateId(), spec: '装饰篾-镶边', color: '染色黄', widthMm: Math.max(2, bambooWidth - 2), lengthMm: Math.ceil(Math.max(finishedWidth, finishedHeight) * 0.5), count: 10, processIndex: 3 },
+      ];
+      set({ materials: defaultMaterials });
       return;
     }
 
@@ -336,28 +437,19 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
     const { bambooWidth, bambooGap, finishedWidth, finishedHeight, lossRate } = weaveParams;
 
     const unitLength = bambooWidth + bambooGap;
-    const warpCount = Math.ceil(finishedWidth / unitLength);
-    const weftCount = Math.ceil(finishedHeight / unitLength);
+    const warpCount = Math.max(8, Math.ceil(finishedWidth / unitLength));
+    const weftCount = Math.max(8, Math.ceil(finishedHeight / unitLength));
+    const warpLength = Math.ceil(finishedHeight * lossRate);
+    const weftLength = Math.ceil(finishedWidth * lossRate);
 
     const materials: MaterialItem[] = [
-      {
-        id: generateId(),
-        spec: '经篾',
-        color: '本色',
-        widthMm: bambooWidth,
-        lengthMm: Math.ceil(finishedHeight * lossRate),
-        count: Math.max(warpCount, cols),
-        processIndex: 0,
-      },
-      {
-        id: generateId(),
-        spec: '纬篾',
-        color: '本色',
-        widthMm: bambooWidth,
-        lengthMm: Math.ceil(finishedWidth * lossRate),
-        count: Math.max(weftCount, rows),
-        processIndex: 1,
-      },
+      { id: generateId(), spec: '经篾-主骨架', color: '本色', widthMm: bambooWidth, lengthMm: warpLength, count: Math.max(Math.floor(warpCount * 0.7), Math.floor(cols * 0.7)), processIndex: 0 },
+      { id: generateId(), spec: '经篾-加强', color: '碳化', widthMm: bambooWidth + 1, lengthMm: warpLength, count: Math.max(4, Math.floor(warpCount * 0.2)), processIndex: 0 },
+      { id: generateId(), spec: '经篾-边框', color: '本色', widthMm: bambooWidth + 3, lengthMm: Math.ceil(warpLength * 1.05), count: 4, processIndex: 0 },
+      { id: generateId(), spec: '纬篾-基础', color: '本色', widthMm: bambooWidth, lengthMm: weftLength, count: Math.max(Math.floor(weftCount * 0.7), Math.floor(rows * 0.7)), processIndex: 1 },
+      { id: generateId(), spec: '纬篾-花纹', color: '竹青', widthMm: Math.max(2, bambooWidth - 1), lengthMm: weftLength, count: Math.max(4, Math.floor(weftCount * 0.3)), processIndex: 1 },
+      { id: generateId(), spec: '收边篾', color: '碳化', widthMm: bambooWidth + 1, lengthMm: Math.ceil(Math.max(finishedWidth, finishedHeight) * lossRate * 1.1), count: 8, processIndex: 2 },
+      { id: generateId(), spec: '装饰篾-镶边', color: '染色黄', widthMm: Math.max(2, bambooWidth - 2), lengthMm: Math.ceil(Math.max(finishedWidth, finishedHeight) * 0.5), count: 10, processIndex: 3 },
     ];
 
     set({ materials });
@@ -413,15 +505,24 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
         weaveMatrix: template.weaveMatrix,
         weaveParams: template.params,
         layers: template.layers,
-        materials: template.materials,
+        materials: template.materials.length > 0 ? template.materials : [],
         validationResult: null,
         selectedCell: null,
       });
+      // 加载后自动计算材料和运行校验
+      if (template.materials.length === 0) {
+        setTimeout(() => get().calculateMaterials(), 0);
+      }
+      setTimeout(() => get().runValidation(), 50);
     }
   },
 
   deleteTemplate: (id) => {
-    const templates = get().templates.filter((t) => t.id !== id);
+    let templates = get().templates.filter((t) => t.id !== id);
+    // 如果删空了，恢复默认模板兜底
+    if (templates.length === 0) {
+      templates = buildDefaultTemplates();
+    }
     try {
       localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
     } catch (e) {
@@ -448,7 +549,9 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
       template.createdAt = Date.now();
       template.updatedAt = Date.now();
 
-      const templates = [...get().templates, template];
+      let templates = [...get().templates, template];
+      // 确保默认模板存在
+      templates = ensureDefaultTemplates(templates);
       try {
         localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
       } catch (e) {
@@ -464,91 +567,21 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
 
   initTemplates: () => {
     try {
+      let storedTemplates: PatternTemplate[] = [];
       const stored = localStorage.getItem(TEMPLATES_STORAGE_KEY);
       if (stored) {
-        const templates = JSON.parse(stored) as PatternTemplate[];
-        set({ templates });
-        return;
+        storedTemplates = JSON.parse(stored) as PatternTemplate[];
       }
-
-      // localStorage 为空时，生成并保存默认模板
-      const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
-      const createMatrix = (rows: number, cols: number, pattern: string): WeaveMatrix => {
-        const warpCodes: WeaveCell[][] = [];
-        const weftCodes: WeaveCell[][] = [];
-        for (let r = 0; r < rows; r++) {
-          const warpRow: WeaveCell[] = [];
-          const weftRow: WeaveCell[] = [];
-          for (let c = 0; c < cols; c++) {
-            let val: WeaveCell = 0;
-            switch (pattern) {
-              case 'plain': val = ((r + c) % 2) as WeaveCell; break;
-              case 'hexagon': val = (((r * 2 + c) % 3) === 0 ? 1 : 0) as WeaveCell; break;
-              case 'cross': val = ((r % 2 === 0 || c % 2 === 0) ? 1 : 0) as WeaveCell; break;
-              case 'herringbone': val = (((r + Math.floor(c / 2)) % 2) as WeaveCell); break;
-              default: val = ((r * c) % 2) as WeaveCell; break;
-            }
-            warpRow.push(val);
-            weftRow.push((val === 1 ? 0 : 1) as WeaveCell);
-          }
-          warpCodes.push(warpRow);
-          weftCodes.push(weftRow);
-        }
-        return { rows, cols, cellSize: 16, warpCodes, weftCodes,
-          detectedPatterns: [{ type: pattern as any, startRow: 0, startCol: 0, width: cols, height: rows }] };
-      };
-      const genThumb = (pattern: string) => {
-        const cellSize = 15; const gridSize = 8; let rects = '';
-        for (let r = 0; r < gridSize; r++) for (let c = 0; c < gridSize; c++) {
-          let isPick = false;
-          if (pattern === 'plain') isPick = (r + c) % 2 === 0;
-          else if (pattern === 'hexagon') isPick = (r * 2 + c) % 3 === 0;
-          else if (pattern === 'cross') isPick = r % 2 === 0 || c % 2 === 0;
-          else if (pattern === 'herringbone') isPick = (r + Math.floor(c / 2)) % 2 === 0;
-          else isPick = (r * c) % 2 === 0;
-          const fill = isPick ? '#5B9D57' : '#D2BE80';
-          const stroke = isPick ? '#476E46' : '#A88B3D';
-          rects += `<rect x="${c * cellSize}" y="${r * cellSize}" width="${cellSize - 1}" height="${cellSize - 1}" rx="1" fill="${fill}" stroke="${stroke}" stroke-opacity="0.3"/>`;
-        }
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="120" height="120" fill="#F8F3E3" rx="4"/>${rects}</svg>`;
-      };
-      const defaults: PatternTemplate[] = [
-        { id: genId(), name: '经典六角孔', patternType: 'hexagon', difficulty: 3, thumbnail: genThumb('hexagon'),
-          tags: ['传统', '透气', '基础'], description: '传统六角孔编织纹样，结构稳定，透气性好，常用于竹篮、筐篓等日常器具。',
-          weaveMatrix: createMatrix(12, 12, 'hexagon'), layers: [], materials: [],
-          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
-          createdAt: Date.now() - 5 * 86400000, updatedAt: Date.now() - 5 * 86400000 },
-        { id: genId(), name: '十字孔花编', patternType: 'cross', difficulty: 2, thumbnail: genThumb('cross'),
-          tags: ['入门', '简洁', '装饰'], description: '十字形孔洞编织，结构简洁，视觉效果分明，适合入门练习。',
-          weaveMatrix: createMatrix(10, 10, 'cross'), layers: [], materials: [],
-          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
-          createdAt: Date.now() - 4 * 86400000, updatedAt: Date.now() - 4 * 86400000 },
-        { id: genId(), name: '人字编纹样', patternType: 'herringbone', difficulty: 4, thumbnail: genThumb('herringbone'),
-          tags: ['工艺', '纹理', '高级'], description: '人字形交错编织，纹理流畅如行云流水，常用于高级竹编工艺品。',
-          weaveMatrix: createMatrix(16, 12, 'herringbone'), layers: [], materials: [],
-          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
-          createdAt: Date.now() - 3 * 86400000, updatedAt: Date.now() - 3 * 86400000 },
-        { id: genId(), name: '平编基础款', patternType: 'plain', difficulty: 1, thumbnail: genThumb('plain'),
-          tags: ['入门', '基础', '教学'], description: '最基础的一挑一压平编技法，是所有竹编的入门基础。',
-          weaveMatrix: createMatrix(8, 8, 'plain'), layers: [], materials: [],
-          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
-          createdAt: Date.now() - 2 * 86400000, updatedAt: Date.now() - 2 * 86400000 },
-        { id: genId(), name: '六角孔变体', patternType: 'hexagon', difficulty: 4, thumbnail: genThumb('hexagon'),
-          tags: ['变体', '层次', '创意'], description: '在传统六角孔基础上加入变化元素，形成更富层次感的编织纹样。',
-          weaveMatrix: createMatrix(14, 14, 'hexagon'), layers: [], materials: [],
-          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
-          createdAt: Date.now() - 1 * 86400000, updatedAt: Date.now() - 1 * 86400000 },
-        { id: genId(), name: '自定义组合纹', patternType: 'custom', difficulty: 5, thumbnail: genThumb('custom'),
-          tags: ['创意', '组合', '大师级'], description: '融合多种编法的自定义组合纹样，考验编织技巧与创意设计。',
-          weaveMatrix: createMatrix(16, 16, 'custom'), layers: [], materials: [],
-          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
-          createdAt: Date.now(), updatedAt: Date.now() },
-      ];
-      localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(defaults));
-      set({ templates: defaults });
+      // 无论本地存储有什么，都确保默认模板存在
+      const mergedTemplates = ensureDefaultTemplates(storedTemplates);
+      // 如果比本地多了默认模板，同步保存回去
+      if (mergedTemplates.length > storedTemplates.length) {
+        localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(mergedTemplates));
+      }
+      set({ templates: mergedTemplates });
     } catch (e) {
       console.error('Failed to load templates from localStorage:', e);
-      set({ templates: [] });
+      set({ templates: buildDefaultTemplates() });
     }
   },
 
