@@ -14,11 +14,16 @@ import {
   AlertCircle,
   Edit2,
   Trash2,
+  Save,
+  Folder,
+  Check,
+  Copy,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWeaveStore } from '@/store/weaveStore';
 import { calcMaterials } from '@/utils/algorithms/calculator';
-import type { MaterialItem } from '@/types';
+import type { MaterialItem, MaterialPlan } from '@/types';
 
 interface MaterialGroupData {
   id: string;
@@ -54,17 +59,44 @@ function buildDefaultMaterials(params: { bambooWidth: number; bambooGap: number;
     { id: generateId(), spec: '经篾-加强', color: '碳化', widthMm: params.bambooWidth + 1, lengthMm: warpLength, count: Math.max(4, Math.floor(warpCount * 0.2)), processIndex: 0 },
     { id: generateId(), spec: '经篾-边框', color: '本色', widthMm: params.bambooWidth + 3, lengthMm: Math.ceil(warpLength * 1.05), count: 4, processIndex: 0 },
     { id: generateId(), spec: '纬篾-基础', color: '本色', widthMm: params.bambooWidth, lengthMm: weftLength, count: Math.floor(weftCount * 0.7), processIndex: 1 },
-    { id: generateId(), spec: '纬篾-花纹', color: '竹青', widthMm: params.bambooWidth - 1, lengthMm: weftLength, count: Math.max(4, Math.floor(weftCount * 0.3)), processIndex: 1 },
+    { id: generateId(), spec: '纬篾-花纹', color: '竹青', widthMm: Math.max(2, params.bambooWidth - 1), lengthMm: weftLength, count: Math.max(4, Math.floor(weftCount * 0.3)), processIndex: 1 },
     { id: generateId(), spec: '收边篾', color: '碳化', widthMm: params.bambooWidth + 1, lengthMm: Math.ceil(Math.max(params.finishedWidth, params.finishedHeight) * params.lossRate * 1.1), count: 8, processIndex: 2 },
     { id: generateId(), spec: '装饰篾-镶边', color: '染色黄', widthMm: Math.max(2, params.bambooWidth - 2), lengthMm: Math.ceil(Math.max(params.finishedWidth, params.finishedHeight) * 0.5), count: 10, processIndex: 3 },
   ];
 }
 
+function getPlanStats(plan: MaterialPlan) {
+  const totalLengthMm = plan.materials.reduce((sum, m) => sum + m.lengthMm * m.count, 0);
+  const warpCount = plan.materials.filter((m) => m.spec.includes('经篾')).reduce((s, m) => s + m.count, 0);
+  const weftCount = plan.materials.filter((m) => m.spec.includes('纬篾')).reduce((s, m) => s + m.count, 0);
+  return {
+    totalLengthM: totalLengthMm / 1000,
+    warpCount,
+    weftCount,
+    lossRate: plan.params.lossRate,
+  };
+}
+
 export default function MaterialList() {
-  const { weaveParams, setParams, calculateMaterials, materials } = useWeaveStore();
+  const {
+    weaveParams,
+    setParams,
+    calculateMaterials,
+    materials,
+    materialPlans,
+    currentPlanId,
+    saveMaterialPlan,
+    loadMaterialPlan,
+    deleteMaterialPlan,
+    currentTemplate,
+  } = useWeaveStore();
+
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['warp', 'weft', 'color']));
   const [localMaterials, setLocalMaterials] = useState<MaterialItem[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showPlanDropdown, setShowPlanDropdown] = useState(false);
+  const [newPlanName, setNewPlanName] = useState('');
   const [newItem, setNewItem] = useState<Partial<MaterialItem>>({
     spec: '',
     color: '本色',
@@ -74,19 +106,21 @@ export default function MaterialList() {
     processIndex: 0,
   });
 
+  const currentPlan = useMemo(
+    () => materialPlans.find((p) => p.id === currentPlanId) || null,
+    [materialPlans, currentPlanId]
+  );
+
   useEffect(() => {
-    // 如果 store 中已有计算结果，直接使用
     if (materials.length > 0) {
       setLocalMaterials(materials);
     } else {
-      // 否则根据当前参数构建默认材料，并触发 store 计算
       const defaults = buildDefaultMaterials(weaveParams);
       setLocalMaterials(defaults);
       calculateMaterials();
     }
   }, [materials, weaveParams, calculateMaterials]);
 
-  // 确保页面加载时就有正确数据
   useEffect(() => {
     if (localMaterials.length === 0) {
       const defaults = buildDefaultMaterials(weaveParams);
@@ -148,6 +182,15 @@ export default function MaterialList() {
     }));
   }, [localMaterials]);
 
+  const minLengthPlan = useMemo(() => {
+    if (materialPlans.length === 0) return null;
+    return materialPlans.reduce((min, plan) => {
+      const stats = getPlanStats(plan);
+      const minStats = getPlanStats(min);
+      return stats.totalLengthM < minStats.totalLengthM ? plan : min;
+    });
+  }, [materialPlans]);
+
   const toggleGroup = (groupId: string) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
@@ -185,8 +228,10 @@ export default function MaterialList() {
   };
 
   const handleExport = () => {
+    const planName = currentPlan?.name || '默认方案';
     const data = {
       exportTime: new Date().toISOString(),
+      planName,
       params: weaveParams,
       materials: localMaterials,
       totals: {
@@ -199,7 +244,7 @@ export default function MaterialList() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `备料清单_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `备料清单_${planName}_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -208,9 +253,29 @@ export default function MaterialList() {
     setParams({ [key]: value });
   };
 
+  const handleSaveNewPlan = () => {
+    if (!newPlanName.trim()) return;
+    saveMaterialPlan(newPlanName.trim());
+    setNewPlanName('');
+    setShowSaveDialog(false);
+  };
+
+  const handleLoadPlan = (planId: string) => {
+    loadMaterialPlan(planId);
+    setShowPlanDropdown(false);
+  };
+
+  const handleDeletePlan = (planId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm('确定要删除该方案吗？')) {
+      deleteMaterialPlan(planId);
+    }
+  };
+
   return (
     <div className="min-h-screen p-6">
       <div className="mx-auto max-w-[1600px] space-y-6">
+        {/* 顶部标题栏 - 增加方案选择器 */}
         <div className="card-bamboo flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-bambooGreen-100">
@@ -225,6 +290,92 @@ export default function MaterialList() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* 方案选择器 */}
+            <div className="relative">
+              <button
+                onClick={() => setShowPlanDropdown(!showPlanDropdown)}
+                className="btn-secondary flex items-center gap-2 min-w-[180px] justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Folder className="h-4 w-4 text-bambooGreen-600" />
+                  <span className="font-song">
+                    {currentPlan ? currentPlan.name : '选择方案'}
+                  </span>
+                </div>
+                <ChevronDown className={cn("h-4 w-4 transition-transform", showPlanDropdown && "rotate-180")} />
+              </button>
+
+              {showPlanDropdown && (
+                <div className="absolute right-0 top-full mt-1 z-50 w-[240px] rounded-lg border border-bamboo-200 bg-bambooCream-50 shadow-bamboo-hover overflow-hidden">
+                  <div className="border-b border-bamboo-200 bg-bambooCream-100/60 px-3 py-2">
+                    <span className="font-song text-xs font-semibold text-bambooBrown-600">
+                      方案列表 ({materialPlans.length})
+                    </span>
+                  </div>
+                  <div className="max-h-[240px] overflow-y-auto">
+                    {materialPlans.length === 0 ? (
+                      <div className="px-3 py-4 text-center font-song text-sm text-bambooBrown-400">
+                        暂无保存的方案
+                      </div>
+                    ) : (
+                      materialPlans.map((plan) => (
+                        <div
+                          key={plan.id}
+                          onClick={() => handleLoadPlan(plan.id)}
+                          className={cn(
+                            "flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
+                            plan.id === currentPlanId
+                              ? "bg-bambooGreen-100 border-l-4 border-bambooGreen-500"
+                              : "hover:bg-bambooCream-100/60"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            {plan.id === currentPlanId && (
+                              <Check className="h-4 w-4 text-bambooGreen-600 flex-shrink-0" />
+                            )}
+                            <span className="font-song text-sm text-bambooBrown-700 truncate">
+                              {plan.name}
+                            </span>
+                          </div>
+                          <button
+                            onClick={(e) => handleDeletePlan(plan.id, e)}
+                            className="p-1 text-bambooBrown-400 hover:text-warning transition-colors flex-shrink-0"
+                            title="删除方案"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 保存为新方案按钮 */}
+            <button
+              onClick={() => setShowSaveDialog(true)}
+              className="btn-primary flex items-center gap-2"
+            >
+              <Save className="h-4 w-4" />
+              保存为新方案
+            </button>
+
+            {/* 删除当前方案按钮 */}
+            {currentPlan && (
+              <button
+                onClick={() => {
+                  if (confirm('确定要删除当前方案吗？')) {
+                    deleteMaterialPlan(currentPlan.id);
+                  }
+                }}
+                className="btn-warning flex items-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                删除当前方案
+              </button>
+            )}
+
             <button onClick={handleRecalculate} className="btn-primary flex items-center gap-2">
               <Calculator className="h-4 w-4" />
               重新计算
@@ -242,6 +393,7 @@ export default function MaterialList() {
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
           <div className="space-y-6">
+            {/* 工艺参数设置 */}
             <div className="card-bamboo">
               <div className="mb-4 flex items-center gap-2 border-b border-bamboo-200 pb-3">
                 <Ruler className="h-4 w-4 text-bambooGreen-600" />
@@ -297,6 +449,7 @@ export default function MaterialList() {
               </div>
             </div>
 
+            {/* 添加备料项表单 */}
             {showAddForm && (
               <div className="card-bamboo border-bambooGreen-300">
                 <div className="mb-4 flex items-center justify-between border-b border-bamboo-200 pb-3">
@@ -375,6 +528,7 @@ export default function MaterialList() {
               </div>
             )}
 
+            {/* 备料明细表格 */}
             <div className="overflow-hidden rounded-xl border border-bamboo-200 bg-bambooCream-50/80 shadow-bamboo">
               <div className="border-b border-bamboo-200 bg-bambooCream-100/60 px-5 py-3">
                 <div className="flex items-center justify-between">
@@ -541,7 +695,108 @@ export default function MaterialList() {
             </div>
           </div>
 
+          {/* 右侧栏 */}
           <div className="space-y-5">
+            {/* 方案对比区域 */}
+            <div className="card-bamboo">
+              <div className="mb-4 flex items-center gap-2 border-b border-bamboo-200 pb-3">
+                <Copy className="h-4 w-4 text-bambooGreen-600" />
+                <h3 className="font-song text-base font-semibold text-bambooBrown-800">方案对比</h3>
+              </div>
+
+              {materialPlans.length === 0 ? (
+                <div className="py-6 text-center">
+                  <Folder className="mx-auto h-10 w-10 text-bamboo-300 mb-2" />
+                  <p className="font-song text-sm text-bambooBrown-400">
+                    暂无保存的方案
+                  </p>
+                  <p className="font-song text-xs text-bambooBrown-400 mt-1">
+                    点击「保存为新方案」创建
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[480px] overflow-y-auto">
+                  {materialPlans.map((plan) => {
+                    const stats = getPlanStats(plan);
+                    const isCurrent = plan.id === currentPlanId;
+                    const isMinLength = minLengthPlan?.id === plan.id;
+
+                    return (
+                      <div
+                        key={plan.id}
+                        onClick={() => handleLoadPlan(plan.id)}
+                        className={cn(
+                          "relative rounded-lg border p-3 cursor-pointer transition-all duration-200",
+                          "hover:shadow-md hover:-translate-y-[1px]",
+                          isCurrent
+                            ? "border-bambooGreen-500 bg-bambooGreen-50/60 border-2"
+                            : "border-bamboo-200 bg-bambooCream-50 hover:border-bambooGreen-300"
+                        )}
+                      >
+                        {isMinLength && (
+                          <div className="absolute -top-2 -right-2">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-bambooGreen-500 px-2 py-0.5 text-xs font-song text-white shadow-sm">
+                              <Check className="h-3 w-3" />
+                              最省料
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {isCurrent && (
+                              <Check className="h-4 w-4 text-bambooGreen-600 flex-shrink-0" />
+                            )}
+                            <span className={cn(
+                              "font-song font-semibold truncate",
+                              isCurrent ? "text-bambooGreen-700" : "text-bambooBrown-700"
+                            )}>
+                              {plan.name}
+                            </span>
+                          </div>
+                          <button
+                            onClick={(e) => handleDeletePlan(plan.id, e)}
+                            className="p-1 text-bambooBrown-400 hover:text-warning transition-colors flex-shrink-0"
+                            title="删除方案"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded bg-bamboo-100/50 px-2 py-1">
+                            <span className="font-song text-bambooBrown-500">总长度</span>
+                            <div className="font-song font-semibold text-bambooBrown-700">
+                              {stats.totalLengthM.toFixed(1)} m
+                            </div>
+                          </div>
+                          <div className="rounded bg-bamboo-100/50 px-2 py-1">
+                            <span className="font-song text-bambooBrown-500">损耗</span>
+                            <div className="font-song font-semibold text-bambooBrown-700">
+                              {((stats.lossRate - 1) * 100).toFixed(1)}%
+                            </div>
+                          </div>
+                          <div className="rounded bg-bambooGreen-100/50 px-2 py-1">
+                            <span className="font-song text-bambooBrown-500">经篾数</span>
+                            <div className="font-song font-semibold text-bambooGreen-700">
+                              {stats.warpCount} 根
+                            </div>
+                          </div>
+                          <div className="rounded bg-bambooGreen-100/50 px-2 py-1">
+                            <span className="font-song text-bambooBrown-500">纬篾数</span>
+                            <div className="font-song font-semibold text-bambooGreen-700">
+                              {stats.weftCount} 根
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 材料统计 */}
             <div className="card-bamboo">
               <div className="mb-4 flex items-center gap-2 border-b border-bamboo-200 pb-3">
                 <Package className="h-4 w-4 text-bambooGreen-600" />
@@ -587,6 +842,7 @@ export default function MaterialList() {
               </div>
             </div>
 
+            {/* 损耗预估 */}
             <div className="card-bamboo">
               <div className="mb-4 flex items-center gap-2 border-b border-bamboo-200 pb-3">
                 <TrendingUp className="h-4 w-4 text-bambooGreen-600" />
@@ -645,6 +901,7 @@ export default function MaterialList() {
               </div>
             </div>
 
+            {/* 工序分布 */}
             <div className="card-bamboo">
               <div className="mb-4 flex items-center gap-2 border-b border-bamboo-200 pb-3">
                 <BarChart3 className="h-4 w-4 text-bambooGreen-600" />
@@ -681,6 +938,74 @@ export default function MaterialList() {
           </div>
         </div>
       </div>
+
+      {/* 保存新方案弹窗 */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-bamboo-200 bg-bambooCream-50 p-6 shadow-bamboo-hover">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Save className="h-5 w-5 text-bambooGreen-600" />
+                <h3 className="font-song text-lg font-bold text-bambooBrown-800">保存为新方案</h3>
+              </div>
+              <button
+                onClick={() => setShowSaveDialog(false)}
+                className="p-1 text-bambooBrown-400 hover:text-bambooBrown-600 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-2">
+              <label className="label-bamboo">方案名称</label>
+              <input
+                type="text"
+                className="input-bamboo"
+                placeholder="请输入方案名称，如：方案A"
+                value={newPlanName}
+                onChange={(e) => setNewPlanName(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveNewPlan();
+                }}
+              />
+            </div>
+
+            <div className="mt-2 rounded-md bg-bamboo-100/50 px-3 py-2">
+              <p className="font-song text-xs text-bambooBrown-500">
+                将保存当前的工艺参数和备料数据
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  setShowSaveDialog(false);
+                  setNewPlanName('');
+                }}
+              >
+                取消
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleSaveNewPlan}
+                disabled={!newPlanName.trim()}
+              >
+                确认保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 点击外部关闭下拉菜单 */}
+      {showPlanDropdown && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setShowPlanDropdown(false)}
+        />
+      )}
     </div>
   );
 }

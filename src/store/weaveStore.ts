@@ -4,15 +4,20 @@ import type {
   WeaveMatrix,
   WeaveParams,
   WeaveLayer,
+  WeaveStep,
   MaterialItem,
   ValidationResult,
   WeaveCell,
   ValidationError,
   ValidationWarning,
   DetectedPattern,
+  MaterialPlan,
+  CorrectionContext,
+  WeaveStepDetail,
 } from '@/types';
 
 const TEMPLATES_STORAGE_KEY = 'bamboo_weave_templates';
+const PLANS_STORAGE_PREFIX = 'bamboo_weave_plans_';
 
 const defaultParams: WeaveParams = {
   bambooWidth: 5,
@@ -40,6 +45,26 @@ function genThumbSvg(pattern: string): string {
     rects += `<rect x="${c * cellSize}" y="${r * cellSize}" width="${cellSize - 1}" height="${cellSize - 1}" rx="1" fill="${fill}" stroke="${stroke}" stroke-opacity="0.3"/>`;
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="120" height="120" fill="#F8F3E3" rx="4"/>${rects}</svg>`;
+}
+
+function loadPlansFromStorage(templateId: string): MaterialPlan[] {
+  try {
+    const stored = localStorage.getItem(PLANS_STORAGE_PREFIX + templateId);
+    if (stored) {
+      return JSON.parse(stored) as MaterialPlan[];
+    }
+  } catch (e) {
+    console.error('Failed to load material plans from localStorage:', e);
+  }
+  return [];
+}
+
+function savePlansToStorage(templateId: string, plans: MaterialPlan[]): void {
+  try {
+    localStorage.setItem(PLANS_STORAGE_PREFIX + templateId, JSON.stringify(plans));
+  } catch (e) {
+    console.error('Failed to save material plans to localStorage:', e);
+  }
 }
 
 function genMatrix(rows: number, cols: number, pattern: string): WeaveMatrix {
@@ -119,6 +144,15 @@ interface WeaveStoreState {
   validationResult: ValidationResult | null;
   templates: PatternTemplate[];
   selectedCell: { row: number; col: number } | null;
+  // 用料方案
+  materialPlans: MaterialPlan[];
+  currentPlanId: string | null;
+  // 模板对比
+  compareIds: string[];
+  // 局部修正
+  correctionContext: CorrectionContext | null;
+  // 工序步骤详情
+  stepDetails: WeaveStepDetail[];
 }
 
 interface WeaveStoreActions {
@@ -136,6 +170,19 @@ interface WeaveStoreActions {
   initTemplates: () => void;
   setSelectedCell: (cell: { row: number; col: number } | null) => void;
   setCurrentTemplate: (template: PatternTemplate | null) => void;
+  // 用料方案
+  saveMaterialPlan: (name: string) => void;
+  loadMaterialPlan: (planId: string) => void;
+  deleteMaterialPlan: (planId: string) => void;
+  loadMaterialPlansForTemplate: (templateId: string) => void;
+  // 模板对比
+  toggleCompare: (templateId: string) => void;
+  clearCompare: () => void;
+  // 局部修正
+  setCorrectionContext: (ctx: CorrectionContext | null) => void;
+  applySuggestionFix: () => void;
+  // 工序详情
+  generateStepDetails: () => void;
 }
 
 export type WeaveStore = WeaveStoreState & WeaveStoreActions;
@@ -149,6 +196,11 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
   validationResult: null,
   templates: [],
   selectedCell: null,
+  materialPlans: [],
+  currentPlanId: null,
+  compareIds: [],
+  correctionContext: null,
+  stepDetails: [],
 
   setWeaveMatrix: (matrix) => {
     set({ weaveMatrix: matrix });
@@ -500,6 +552,7 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
     const { templates } = get();
     const template = templates.find((t) => t.id === id);
     if (template) {
+      const plans = loadPlansFromStorage(template.id);
       set({
         currentTemplate: template,
         weaveMatrix: template.weaveMatrix,
@@ -508,6 +561,8 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
         materials: template.materials.length > 0 ? template.materials : [],
         validationResult: null,
         selectedCell: null,
+        materialPlans: plans,
+        currentPlanId: null,
       });
       // 加载后自动计算材料和运行校验
       if (template.materials.length === 0) {
@@ -591,5 +646,176 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
 
   setCurrentTemplate: (template) => {
     set({ currentTemplate: template });
+  },
+
+  // ========== 用料方案管理 ==========
+  saveMaterialPlan: (name) => {
+    const { currentTemplate, weaveParams, materials, materialPlans } = get();
+    const templateId = currentTemplate?.id || 'default';
+    const plan: MaterialPlan = {
+      id: generateId(),
+      name,
+      templateId,
+      params: { ...weaveParams },
+      materials: materials.map(m => ({ ...m })),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const newPlans = [...materialPlans, plan];
+    set({ materialPlans: newPlans, currentPlanId: plan.id });
+    savePlansToStorage(templateId, newPlans);
+  },
+
+  loadMaterialPlan: (planId) => {
+    const { materialPlans } = get();
+    const plan = materialPlans.find(p => p.id === planId);
+    if (plan) {
+      set({
+        weaveParams: { ...plan.params },
+        materials: plan.materials.map(m => ({ ...m })),
+        currentPlanId: planId,
+      });
+    }
+  },
+
+  deleteMaterialPlan: (planId) => {
+    const { materialPlans, currentPlanId, currentTemplate } = get();
+    const newPlans = materialPlans.filter(p => p.id !== planId);
+    const templateId = currentTemplate?.id || 'default';
+    set({
+      materialPlans: newPlans,
+      currentPlanId: currentPlanId === planId ? null : currentPlanId,
+    });
+    savePlansToStorage(templateId, newPlans);
+  },
+
+  loadMaterialPlansForTemplate: (templateId) => {
+    const plans = loadPlansFromStorage(templateId);
+    set({ materialPlans: plans, currentPlanId: null });
+  },
+
+  // ========== 模板对比 ==========
+  toggleCompare: (templateId) => {
+    const { compareIds } = get();
+    const idx = compareIds.indexOf(templateId);
+    if (idx >= 0) {
+      set({ compareIds: compareIds.filter(id => id !== templateId) });
+    } else {
+      if (compareIds.length >= 2) {
+        set({ compareIds: [compareIds[1], templateId] });
+      } else {
+        set({ compareIds: [...compareIds, templateId] });
+      }
+    }
+  },
+
+  clearCompare: () => {
+    set({ compareIds: [] });
+  },
+
+  // ========== 局部修正模式 ==========
+  setCorrectionContext: (ctx) => {
+    set({ correctionContext: ctx });
+  },
+
+  applySuggestionFix: () => {
+    const { correctionContext, weaveMatrix, updateCell, runValidation, setCorrectionContext } = get();
+    if (!correctionContext || !weaveMatrix) return;
+
+    const { row, col } = correctionContext;
+    const currentVal = weaveMatrix.warpCodes[row]?.[col];
+    if (currentVal !== undefined) {
+      const newVal = (currentVal === 1 ? 0 : 1) as WeaveCell;
+      updateCell(row, col, 'warp', newVal);
+      // 同步更新纬篾方向，保持一致性
+      updateCell(row, col, 'weft', (newVal === 1 ? 0 : 1) as WeaveCell);
+    }
+    runValidation();
+    setCorrectionContext(null);
+  },
+
+  // ========== 工序步骤详情 ==========
+  generateStepDetails: () => {
+    const { weaveMatrix, weaveParams, materials, layers, splitIntoLayers } = get();
+    if (!weaveMatrix) {
+      set({ stepDetails: [] });
+      return;
+    }
+
+    if (layers.length === 0) {
+      splitIntoLayers();
+    }
+
+    const { rows, cols, warpCodes } = weaveMatrix;
+    const details: WeaveStepDetail[] = [];
+    const { bambooWidth, lossRate, finishedWidth, finishedHeight } = weaveParams;
+
+    const allSteps: { layerName: string; step: WeaveStep; layerIndex: number }[] = [];
+    get().layers.forEach((layer) => {
+      layer.steps.forEach((step) => {
+        allSteps.push({ layerName: layer.layerName, step, layerIndex: layer.layerIndex });
+      });
+    });
+
+    allSteps.forEach((item, idx) => {
+      const { step, layerName, layerIndex } = item;
+      const startR = Math.max(0, step.startCount);
+      const endR = Math.min(rows, step.endCount);
+      const slice = warpCodes.slice(startR, endR).map(row => [...row]);
+
+      const stepMaterials = materials.filter(m => {
+        if (layerIndex === 0) return m.spec.includes('经篾');
+        if (layerIndex === get().layers.length - 1) return m.spec.includes('收边') || m.spec.includes('装饰');
+        return m.spec.includes('纬篾');
+      });
+
+      details.push({
+        ...step,
+        id: `detail-${idx}`,
+        stepIndex: idx,
+        instruction: `[${layerName}] ${step.instruction}`,
+        matrixSlice: slice.length > 0 ? slice : undefined,
+        requiredMaterials: stepMaterials.length > 0 ? stepMaterials : undefined,
+        tips: [
+          '保持篾条张力均匀',
+          '挑压方向一致，避免交错',
+          '每完成3-5根检查一次平整度',
+        ],
+        estimatedMinutes: Math.max(5, Math.floor((endR - startR) * 1.5)),
+        difficulty: (layerIndex === 0 || layerIndex === get().layers.length - 1 ? 2 : 3) as 1 | 2 | 3 | 4 | 5,
+      });
+    });
+
+    if (details.length === 0) {
+      const stepCount = Math.ceil(rows / 4);
+      for (let i = 0; i < stepCount; i++) {
+        const start = i * 4;
+        const end = Math.min(rows, (i + 1) * 4);
+        details.push({
+          id: `detail-${i}`,
+          stepIndex: i,
+          instruction: `编织第 ${start + 1}-${end} 行纬篾`,
+          startCount: start,
+          endCount: end,
+          matrixSlice: warpCodes.slice(start, end).map(row => [...row]),
+          requiredMaterials: [
+            {
+              id: `mat-${i}`,
+              spec: '纬篾-基础',
+              color: '本色',
+              widthMm: bambooWidth,
+              lengthMm: Math.ceil(finishedWidth * lossRate),
+              count: end - start,
+              processIndex: 1,
+            },
+          ],
+          tips: ['保持张力均匀', '检查挑压方向', '及时调整间隙'],
+          estimatedMinutes: Math.max(5, (end - start) * 2),
+          difficulty: 2,
+        });
+      }
+    }
+
+    set({ stepDetails: details });
   },
 }));

@@ -115,3 +115,92 @@ export interface ColorShift {
   actual: string;
   message: string;
 }
+
+/**
+ * 用料方案
+ * 同一模板下可保存多组不同参数的用料方案
+ */
+export interface MaterialPlan {
+  id: string;
+  name: string;
+  templateId: string;
+  params: WeaveParams;
+  materials: MaterialItem[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 工序步骤详情
+ * 包含步骤对应矩阵片段、用料项等更详细信息
+ */
+export interface WeaveStepDetail extends WeaveStep {
+  /** 步骤对应的矩阵片段 */
+  matrixSlice?: WeaveCell[][];
+  /** 本步骤所需用料 */
+  requiredMaterials?: MaterialItem[];
+  /** 操作要点 */
+  tips?: string[];
+  /** 预计耗时（分钟） */
+  estimatedMinutes?: number;
+  /** 难度等级 */
+  difficulty?: 1 | 2 | 3 | 4 | 5;
+}
+
+/**
+ * 模板对比结果
+ */
+export interface TemplateComparison {
+  templateA: PatternTemplate;
+  templateB: PatternTemplate;
+  matrixDiff: {
+    totalCells: number;
+    diffCells: number;
+    diffPercent: number;
+  };
+  paramsDiff: {
+    key: string;
+    label: string;
+    valueA: number;
+    valueB: number;
+    diff: number;
+    winner: 'A' | 'B' | 'equal';
+  }[];
+  materialDiff: {
+    totalCountA: number;
+    totalCountB: number;
+    totalLengthA: number;
+    totalLengthB: number;
+    winner: 'A' | 'B' | 'equal';
+  };
+  validationDiff: {
+    errorsA: number;
+    errorsB: number;
+    warningsA: number;
+    warningsB: number;
+    riskWinner: 'A' | 'B' | 'equal';
+  };
+}
+
+export type HighlightRole = 'target' | 'affect';
+
+export interface HighlightCell {
+  row: number;
+  col: number;
+  role: HighlightRole;
+}
+
+/**
+ * 局部修正上下文
+ * 选中异常位置时的高亮和建议状态
+ */
+export interface CorrectionContext {
+  row: number;
+  col: number;
+  errorType: string;
+  suggestion?: string;
+  relatedCells: HighlightCell[];
+  fixAction?: string;
+  currentIndex?: number;
+  totalCount?: number;
+}

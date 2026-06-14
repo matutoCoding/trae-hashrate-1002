@@ -87,6 +87,8 @@ export default {
         "pulse-soft": "pulseSoft 2s ease-in-out infinite",
         "draw-line": "drawLine 1s ease-out forwards",
         "weave-in": "weaveIn 0.5s ease-out forwards",
+        "pulse-border": "pulseBorder 1.5s ease-in-out infinite",
+        "pulse-ring": "pulseRing 1.5s ease-out infinite",
       },
       keyframes: {
         fadeInUp: {
@@ -96,6 +98,14 @@ export default {
         pulseSoft: {
           "0%, 100%": { opacity: "1", boxShadow: "0 0 0 0 rgba(192, 57, 43, 0.4)" },
           "50%": { opacity: "0.8", boxShadow: "0 0 0 8px rgba(192, 57, 43, 0)" },
+        },
+        pulseBorder: {
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(192, 57, 43, 0.6)" },
+          "50%": { boxShadow: "0 0 0 4px rgba(192, 57, 43, 0.2)" },
+        },
+        pulseRing: {
+          "0%": { transform: "scale(1)", opacity: "0.8" },
+          "100%": { transform: "scale(1.3)", opacity: "0" },
         },
         drawLine: {
           "0%": { strokeDashoffset: "1000" },

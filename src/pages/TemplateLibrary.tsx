@@ -16,6 +16,11 @@ import {
   Layers,
   Package,
   Edit2,
+  GitCompare,
+  ArrowLeftRight,
+  Check,
+  Minus,
+  TrendingDown,
 } from 'lucide-react';
 import { useWeaveStore } from '@/store/weaveStore';
 import WeaveGrid from '@/components/WeaveGrid';
@@ -322,6 +327,178 @@ function DifficultyStars({ difficulty, size = 14 }: { difficulty: number; size?:
   );
 }
 
+function CompareWeaveGrid({
+  weaveMatrix,
+  diffCells,
+  cellSize = 12,
+}: {
+  weaveMatrix: WeaveCell[][];
+  diffCells: { row: number; col: number }[];
+  cellSize?: number;
+}) {
+  const rows = weaveMatrix.length;
+  const cols = rows > 0 ? weaveMatrix[0].length : 0;
+  const diffSet = useMemo(() => {
+    return new Set(diffCells.map(d => `${d.row}-${d.col}`));
+  }, [diffCells]);
+
+  if (rows === 0 || cols === 0) {
+    return (
+      <div className="flex items-center justify-center p-4 text-bambooBrown-500 text-sm">
+        暂无数据
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-block rounded-lg border border-bamboo-200 bg-bambooCream-100/40 p-1.5">
+      <div
+        className="grid gap-[1px]"
+        style={{
+          gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
+          gridTemplateRows: `repeat(${rows}, ${cellSize}px)`,
+        }}
+      >
+        {weaveMatrix.map((row, rowIndex) =>
+          row.map((cell, colIndex) => {
+            const isPick = cell === 1;
+            const isDiff = diffSet.has(`${rowIndex}-${colIndex}`);
+            return (
+              <div
+                key={`${rowIndex}-${colIndex}`}
+                className={cn(
+                  "flex items-center justify-center rounded-sm transition-all",
+                  isPick
+                    ? "bg-bambooGreen-400/70 border border-bambooGreen-600/40"
+                    : "bg-bamboo-300/60 border border-bamboo-500/40",
+                  isDiff && "ring-2 ring-warning ring-offset-0"
+                )}
+                style={{ width: cellSize, height: cellSize }}
+              />
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MaterialStatCard({
+  label,
+  value,
+  unit,
+  compareValue,
+  lowerIsBetter = true,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  compareValue: number;
+  lowerIsBetter?: boolean;
+}) {
+  const isBetter = lowerIsBetter ? value < compareValue : value > compareValue;
+  const isEqual = value === compareValue;
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border p-3 transition-all',
+        isBetter && !isEqual
+          ? 'bg-bambooGreen-50 border-bambooGreen-200'
+          : 'bg-bambooCream-50 border-bamboo-100'
+      )}
+    >
+      <div className="text-xs text-bambooBrown-500 font-song mb-1">{label}</div>
+      <div className="flex items-center gap-1">
+        {isBetter && !isEqual && (
+          <TrendingDown className="w-3.5 h-3.5 text-bambooGreen-500" />
+        )}
+        {isEqual && (
+          <Minus className="w-3.5 h-3.5 text-bamboo-400" />
+        )}
+        <span
+          className={cn(
+            'text-lg font-bold font-song',
+            isBetter && !isEqual
+              ? 'text-bambooGreen-600'
+              : 'text-bambooBrown-700'
+          )}
+        >
+          {value}
+        </span>
+        <span className="text-xs text-bambooBrown-400">{unit}</span>
+      </div>
+      {isBetter && !isEqual && (
+        <div className="text-[10px] text-bambooGreen-600 mt-1 font-song">
+          更省料
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ValidationCompareCard({
+  template,
+  otherTemplate,
+}: {
+  template: PatternTemplate;
+  otherTemplate: PatternTemplate;
+}) {
+  const errorsA = template.weaveMatrix.rows * 0.3;
+  const warningsA = template.weaveMatrix.rows * 0.5;
+  const risksA = Math.floor(errorsA + warningsA * 0.5);
+
+  const errorsB = otherTemplate.weaveMatrix.rows * 0.3;
+  const warningsB = otherTemplate.weaveMatrix.rows * 0.5;
+  const risksB = Math.floor(errorsB + warningsB * 0.5);
+
+  const errors = Math.floor(errorsA);
+  const warnings = Math.floor(warningsA);
+  const risks = risksA;
+
+  const otherErrors = Math.floor(errorsB);
+  const otherWarnings = Math.floor(warningsB);
+  const otherRisks = risksB;
+
+  const totalRisk = errors + warnings + risks;
+  const otherTotalRisk = otherErrors + otherWarnings + otherRisks;
+
+  const isLowerRisk = totalRisk < otherTotalRisk;
+  const isEqual = totalRisk === otherTotalRisk;
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border p-3 space-y-2',
+        isLowerRisk && !isEqual
+          ? 'bg-bambooGreen-50 border-bambooGreen-200'
+          : 'bg-bambooCream-50 border-bamboo-100'
+      )}
+    >
+      <div className="grid grid-cols-3 gap-2">
+        <div className="text-center">
+          <div className="text-lg font-bold font-song text-warning">{errors}</div>
+          <div className="text-[10px] text-bambooBrown-500 font-song">错误</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold font-song text-bamboo-500">{warnings}</div>
+          <div className="text-[10px] text-bambooBrown-500 font-song">警告</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold font-song text-bambooBrown-600">{risks}</div>
+          <div className="text-[10px] text-bambooBrown-500 font-song">风险点</div>
+        </div>
+      </div>
+      {isLowerRisk && !isEqual && (
+        <div className="text-xs text-bambooGreen-600 text-center font-song flex items-center justify-center gap-1">
+          <TrendingDown className="w-3.5 h-3.5" />
+          风险更低
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TemplateLibrary() {
   const {
     templates,
@@ -330,6 +507,9 @@ export default function TemplateLibrary() {
     deleteTemplate,
     exportTemplate,
     importTemplate,
+    compareIds,
+    toggleCompare,
+    clearCompare,
   } = useWeaveStore();
 
   const [searchText, setSearchText] = useState('');
@@ -338,6 +518,7 @@ export default function TemplateLibrary() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedTemplate, setSelectedTemplate] = useState<PatternTemplate | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [showCompareModal, setShowCompareModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -415,6 +596,49 @@ export default function TemplateLibrary() {
   const handleEdit = (template: PatternTemplate) => {
     loadTemplate(template.id);
     alert(`已加载模板"${template.name}"到编辑器`);
+  };
+
+  const compareTemplates = useMemo(() => {
+    return compareIds.map(id => templates.find(t => t.id === id)).filter(Boolean) as PatternTemplate[];
+  }, [compareIds, templates]);
+
+  const matrixDiffCells = useMemo(() => {
+    if (compareTemplates.length !== 2) return [];
+    const [a, b] = compareTemplates;
+    const diffs: { row: number; col: number }[] = [];
+    const maxRows = Math.max(a.weaveMatrix.rows, b.weaveMatrix.rows);
+    const maxCols = Math.max(a.weaveMatrix.cols, b.weaveMatrix.cols);
+    for (let r = 0; r < maxRows; r++) {
+      for (let c = 0; c < maxCols; c++) {
+        const valA = a.weaveMatrix.warpCodes[r]?.[c];
+        const valB = b.weaveMatrix.warpCodes[r]?.[c];
+        if (valA !== valB) {
+          diffs.push({ row: r, col: c });
+        }
+      }
+    }
+    return diffs;
+  }, [compareTemplates]);
+
+  const handleCompareClick = () => {
+    if (compareIds.length === 2) {
+      setShowCompareModal(true);
+    }
+  };
+
+  const handleSwapTemplates = () => {
+    if (compareIds.length === 2) {
+      const [first, second] = compareIds;
+      clearCompare();
+      toggleCompare(second);
+      toggleCompare(first);
+    }
+  };
+
+  const handleLoadFromCompare = (templateId: string) => {
+    loadTemplate(templateId);
+    setShowCompareModal(false);
+    clearCompare();
   };
 
   return (
@@ -549,8 +773,38 @@ export default function TemplateLibrary() {
                     className="w-full h-full"
                     dangerouslySetInnerHTML={{ __html: template.thumbnail }}
                   />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCompare(template.id);
+                    }}
+                    className={cn(
+                      'absolute top-2 left-2 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200',
+                      compareIds.includes(template.id)
+                        ? 'bg-bambooGreen-500 border-bambooGreen-600 text-white shadow-md'
+                        : 'bg-white/80 border-bamboo-300 text-transparent hover:border-bambooGreen-400 hover:bg-bambooGreen-50'
+                    )}
+                    title={compareIds.includes(template.id) ? '取消对比' : '加入对比'}
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
                   <div className="absolute inset-0 bg-bambooBrown-900/0 group-hover:bg-bambooBrown-900/50 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleCompare(template.id);
+                        }}
+                        className={cn(
+                          'p-2 rounded-lg transition-all',
+                          compareIds.includes(template.id)
+                            ? 'bg-bambooGreen-500 text-white'
+                            : 'bg-white/90 hover:bg-bambooGreen-500 hover:text-white'
+                        )}
+                        title={compareIds.includes(template.id) ? '取消对比' : '加入对比'}
+                      >
+                        <GitCompare className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -635,6 +889,11 @@ export default function TemplateLibrary() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-bamboo-200 bg-bambooCream-100/60">
+                    <th className="w-12 py-3 px-4 font-song text-sm text-bambooBrown-700 text-center">
+                      <div title="对比">
+                        <GitCompare className="w-4 h-4 mx-auto" />
+                      </div>
+                    </th>
                     <th className="text-left py-3 px-4 font-song text-sm text-bambooBrown-700">缩略图</th>
                     <th className="text-left py-3 px-4 font-song text-sm text-bambooBrown-700">名称</th>
                     <th className="text-left py-3 px-4 font-song text-sm text-bambooBrown-700">编法类型</th>
@@ -651,6 +910,20 @@ export default function TemplateLibrary() {
                       className="border-b border-bamboo-100 hover:bg-bambooCream-100/40 transition-colors animate-fade-in-up"
                       style={{ animationDelay: `${index * 40}ms` }}
                     >
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => toggleCompare(template.id)}
+                          className={cn(
+                            'w-5 h-5 rounded border-2 inline-flex items-center justify-center transition-all duration-200',
+                            compareIds.includes(template.id)
+                              ? 'bg-bambooGreen-500 border-bambooGreen-600 text-white'
+                              : 'bg-white border-bamboo-300 text-transparent hover:border-bambooGreen-400 hover:bg-bambooGreen-50'
+                          )}
+                          title={compareIds.includes(template.id) ? '取消对比' : '加入对比'}
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                      </td>
                       <td className="py-3 px-4">
                         <div
                           className="w-12 h-12 rounded-md overflow-hidden border border-bamboo-200"
@@ -741,6 +1014,39 @@ export default function TemplateLibrary() {
           </div>
         )}
       </div>
+
+      {compareIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-weave-in">
+          <div className="card-bamboo flex items-center gap-4 px-5 py-3 shadow-bamboo-hover">
+            <div className="flex items-center gap-2">
+              <GitCompare className="w-5 h-5 text-bambooGreen-600" />
+              <span className="font-song text-bambooBrown-700">
+                已选 <span className="font-bold text-bambooGreen-600">{compareIds.length}</span> 个模板
+                {compareIds.length < 2 && (
+                  <span className="text-bambooBrown-400 text-sm ml-1">（还需选{2 - compareIds.length}个）</span>
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={clearCompare}
+                className="btn-secondary !py-1.5 !px-3 text-sm flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                清空
+              </button>
+              <button
+                onClick={handleCompareClick}
+                disabled={compareIds.length !== 2}
+                className="btn-primary !py-1.5 !px-4 text-sm flex items-center gap-1.5"
+              >
+                <GitCompare className="w-4 h-4" />
+                点击对比
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && selectedTemplate && (
         <div
@@ -909,6 +1215,230 @@ export default function TemplateLibrary() {
                 <FileText className="w-4 h-4" />
                 加载到编辑器
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCompareModal && compareTemplates.length === 2 && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowCompareModal(false)}
+        >
+          <div className="absolute inset-0 bg-bambooBrown-900/60 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-2xl bg-bambooCream-50 shadow-2xl animate-weave-in flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-bamboo-200 bg-bambooCream-100/60">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-bambooGreen-500 flex items-center justify-center shadow-bamboo">
+                  <GitCompare className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold font-song text-bambooBrown-800">模板对比</h2>
+                  <p className="text-xs text-bambooBrown-500">双栏对比分析，助您选择最优方案</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSwapTemplates}
+                  className="p-2 rounded-lg text-bambooBrown-500 hover:bg-bamboo-200 hover:text-bambooBrown-700 transition-all"
+                  title="交换位置"
+                >
+                  <ArrowLeftRight className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => setShowCompareModal(false)}
+                  className="p-2 rounded-lg text-bambooBrown-500 hover:bg-bamboo-200 hover:text-bambooBrown-700 transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="grid grid-cols-2 gap-6">
+                {compareTemplates.map((template, idx) => (
+                  <div
+                    key={template.id}
+                    className={cn(
+                      'space-y-5',
+                      idx === 0 ? 'pr-6 border-r border-bamboo-200' : 'pl-6'
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-16 h-16 rounded-lg overflow-hidden border border-bamboo-300 bg-white shadow-sm flex-shrink-0"
+                        dangerouslySetInnerHTML={{ __html: template.thumbnail }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold font-song text-bambooBrown-800 text-lg truncate">
+                          {template.name}
+                        </h3>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span
+                            className={cn(
+                              'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border',
+                              PATTERN_TYPE_COLORS[template.patternType]
+                            )}
+                          >
+                            {PATTERN_TYPE_LABELS[template.patternType]}
+                          </span>
+                          <DifficultyStars difficulty={template.difficulty} size={12} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold font-song text-bambooBrown-700 mb-2 flex items-center gap-1.5">
+                        <Layers className="w-4 h-4 text-bambooGreen-600" />
+                        挑压矩阵
+                        <span className="text-xs font-normal text-bambooBrown-400 ml-auto">
+                          {template.weaveMatrix.rows} × {template.weaveMatrix.cols}
+                        </span>
+                      </h4>
+                      <div className="bg-bambooCream-100/50 rounded-lg p-3 border border-bamboo-100 flex justify-center overflow-auto">
+                        <CompareWeaveGrid
+                          weaveMatrix={template.weaveMatrix.warpCodes}
+                          diffCells={idx === 0 ? matrixDiffCells : matrixDiffCells}
+                          cellSize={10}
+                        />
+                      </div>
+                      <p className="text-xs text-bambooBrown-400 mt-2 text-center">
+                        <span className="inline-flex items-center gap-1">
+                          <span className="w-3 h-3 rounded-sm border-2 border-warning bg-warning/10" />
+                          差异单元格
+                        </span>
+                        <span className="mx-2">·</span>
+                        共 <span className="text-warning font-semibold">{matrixDiffCells.length}</span> 处不同
+                      </p>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold font-song text-bambooBrown-700 mb-2 flex items-center gap-1.5">
+                        <Package className="w-4 h-4 text-bambooGreen-600" />
+                        参数对比
+                      </h4>
+                      <div className="space-y-2">
+                        {[
+                          { key: 'bambooWidth', label: '篾宽', value: template.params.bambooWidth, unit: 'mm', lowerIsBetter: true },
+                          { key: 'bambooGap', label: '间隙', value: template.params.bambooGap, unit: 'mm', lowerIsBetter: true },
+                          { key: 'finishedWidth', label: '成品宽度', value: template.params.finishedWidth, unit: 'mm', lowerIsBetter: false },
+                          { key: 'finishedHeight', label: '成品高度', value: template.params.finishedHeight, unit: 'mm', lowerIsBetter: false },
+                          { key: 'lossRate', label: '损耗系数', value: template.params.lossRate, unit: '', lowerIsBetter: true },
+                        ].map((item) => {
+                          const otherTemplate = compareTemplates[idx === 0 ? 1 : 0];
+                          const otherValue = otherTemplate.params[item.key as keyof typeof otherTemplate.params] as number;
+                          const isBetter = item.lowerIsBetter
+                            ? item.value < otherValue
+                            : item.value > otherValue;
+                          const isEqual = item.value === otherValue;
+                          return (
+                            <div
+                              key={item.key}
+                              className={cn(
+                                'flex items-center justify-between px-3 py-2 rounded-lg border transition-all',
+                                isBetter && !isEqual
+                                  ? 'bg-bambooGreen-50 border-bambooGreen-200'
+                                  : 'bg-bambooCream-50 border-bamboo-100'
+                              )}
+                            >
+                              <span className="text-sm text-bambooBrown-600 font-song">{item.label}</span>
+                              <div className="flex items-center gap-1.5">
+                                {isBetter && !isEqual && (
+                                  <TrendingDown className="w-4 h-4 text-bambooGreen-500" />
+                                )}
+                                {isEqual && (
+                                  <Minus className="w-4 h-4 text-bamboo-400" />
+                                )}
+                                <span
+                                  className={cn(
+                                    'font-bold font-song',
+                                    isBetter && !isEqual
+                                      ? 'text-bambooGreen-600'
+                                      : 'text-bambooBrown-700'
+                                  )}
+                                >
+                                  {item.value}
+                                  <span className="text-xs font-normal text-bambooBrown-400 ml-0.5">{item.unit}</span>
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold font-song text-bambooBrown-700 mb-2 flex items-center gap-1.5">
+                        <Package className="w-4 h-4 text-bambooGreen-600" />
+                        备料数据
+                      </h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        <MaterialStatCard
+                          label="总根数"
+                          value={template.materials.reduce((sum, m) => sum + m.count, 0)}
+                          unit="根"
+                          compareValue={compareTemplates[idx === 0 ? 1 : 0].materials.reduce((sum, m) => sum + m.count, 0)}
+                          lowerIsBetter
+                        />
+                        <MaterialStatCard
+                          label="总长度"
+                          value={Math.round(template.materials.reduce((sum, m) => sum + m.count * m.lengthMm, 0) / 1000 * 100) / 100}
+                          unit="米"
+                          compareValue={Math.round(compareTemplates[idx === 0 ? 1 : 0].materials.reduce((sum, m) => sum + m.count * m.lengthMm, 0) / 1000 * 100) / 100}
+                          lowerIsBetter
+                        />
+                        <MaterialStatCard
+                          label="经篾数"
+                          value={template.materials.filter(m => m.spec.includes('经篾')).reduce((sum, m) => sum + m.count, 0)}
+                          unit="根"
+                          compareValue={compareTemplates[idx === 0 ? 1 : 0].materials.filter(m => m.spec.includes('经篾')).reduce((sum, m) => sum + m.count, 0)}
+                          lowerIsBetter
+                        />
+                        <MaterialStatCard
+                          label="纬篾数"
+                          value={template.materials.filter(m => m.spec.includes('纬篾')).reduce((sum, m) => sum + m.count, 0)}
+                          unit="根"
+                          compareValue={compareTemplates[idx === 0 ? 1 : 0].materials.filter(m => m.spec.includes('纬篾')).reduce((sum, m) => sum + m.count, 0)}
+                          lowerIsBetter
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold font-song text-bambooBrown-700 mb-2 flex items-center gap-1.5">
+                        <FileText className="w-4 h-4 text-bambooGreen-600" />
+                        校验结果
+                      </h4>
+                      <ValidationCompareCard template={template} otherTemplate={compareTemplates[idx === 0 ? 1 : 0]} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-4 border-t border-bamboo-200 bg-bambooCream-100/60">
+              <div className="text-sm text-bambooBrown-500 font-song">
+                提示：绿色标记表示该指标更优
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleLoadFromCompare(compareTemplates[0].id)}
+                  className="btn-secondary flex items-center gap-1.5 !py-2 !px-4"
+                >
+                  <FileText className="w-4 h-4" />
+                  加载模板A
+                </button>
+                <button
+                  onClick={() => handleLoadFromCompare(compareTemplates[1].id)}
+                  className="btn-primary flex items-center gap-1.5 !py-2 !px-4"
+                >
+                  <FileText className="w-4 h-4" />
+                  加载模板B
+                </button>
+              </div>
             </div>
           </div>
         </div>

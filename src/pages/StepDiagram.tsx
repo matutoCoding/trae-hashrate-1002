@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Layers,
   Play,
@@ -10,13 +10,19 @@ import {
   CheckCircle2,
   Circle,
   Clock,
+  Star,
+  Package,
+  ListChecks,
+  AlertCircle,
+  ChevronRight,
+  Ruler,
+  Palette,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWeaveStore } from '@/store/weaveStore';
 import { splitLayers } from '@/utils/algorithms/layerSplitter';
-import StepTimeline from '@/components/StepTimeline';
 import WeaveGrid from '@/components/WeaveGrid';
-import type { WeaveLayer, WeaveCell } from '@/types';
+import type { WeaveLayer, WeaveCell, WeaveStepDetail, MaterialItem } from '@/types';
 
 type LayerStatus = 'completed' | 'current' | 'pending';
 
@@ -39,8 +45,384 @@ function buildMockLayers(): WeaveLayer[] {
   return splitLayers(MOCK_MATRIX);
 }
 
+function buildMockStepDetails(): WeaveStepDetail[] {
+  const mockSteps: WeaveStepDetail[] = [];
+  const steps = [
+    { name: '起篾准备', desc: '准备并排布经篾，建立编织骨架', rows: 0, difficulty: 2, minutes: 15 },
+    { name: '固定经篾', desc: '固定经篾两端，保持张力均匀', rows: 0, difficulty: 1, minutes: 10 },
+    { name: '第1-2行编织', desc: '按挑压规律编织第1至2行纬篾', rows: 2, difficulty: 2, minutes: 8 },
+    { name: '第3-4行编织', desc: '按挑压规律编织第3至4行纬篾', rows: 2, difficulty: 3, minutes: 10 },
+    { name: '第5-6行编织', desc: '按挑压规律编织第5至6行纬篾', rows: 2, difficulty: 3, minutes: 10 },
+    { name: '第7-8行编织', desc: '按挑压规律编织第7至8行纬篾', rows: 2, difficulty: 2, minutes: 8 },
+    { name: '检查收边', desc: '检查所有纬篾挑压是否正确', rows: 0, difficulty: 2, minutes: 5 },
+    { name: '修剪收边', desc: '修剪多余篾条，进行收边处理', rows: 0, difficulty: 3, minutes: 12 },
+  ];
+
+  steps.forEach((step, idx) => {
+    const matrixSlice = step.rows > 0 ? MOCK_MATRIX.slice(Math.max(0, idx * 2 - 2), Math.max(0, idx * 2 - 2) + step.rows) : undefined;
+    mockSteps.push({
+      id: `mock-step-${idx}`,
+      stepIndex: idx,
+      instruction: step.desc,
+      startCount: idx * 2,
+      endCount: idx * 2 + step.rows,
+      matrixSlice,
+      requiredMaterials: [
+        {
+          id: `mat-${idx}-1`,
+          spec: idx < 2 ? '经篾-主骨架' : '纬篾-基础',
+          color: idx < 2 ? '本色' : idx % 2 === 0 ? '竹青' : '本色',
+          widthMm: 5,
+          lengthMm: 330,
+          count: step.rows > 0 ? step.rows : 4,
+          processIndex: idx < 2 ? 0 : 1,
+        },
+        ...(idx >= 6 ? [{
+          id: `mat-${idx}-2`,
+          spec: '收边篾',
+          color: '碳化',
+          widthMm: 6,
+          lengthMm: 360,
+          count: 2,
+          processIndex: 2,
+        }] : []),
+      ],
+      tips: [
+        '保持篾条张力均匀，避免过紧或过松',
+        '每根纬篾穿引后需用工具压实',
+        '注意挑压方向，挑为经篾在上，压为纬篾在上',
+        '每完成3-5根检查一次平整度',
+      ],
+      estimatedMinutes: step.minutes,
+      difficulty: step.difficulty as 1 | 2 | 3 | 4 | 5,
+    });
+  });
+
+  return mockSteps;
+}
+
+function DifficultyStars({ difficulty }: { difficulty: number }) {
+  return (
+    <div className="flex items-center gap-0.5">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <Star
+          key={i}
+          size={14}
+          className={cn(
+            i < difficulty
+              ? 'text-amber-400 fill-amber-400'
+              : 'text-bamboo-300'
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MaterialItemCard({ item }: { item: MaterialItem }) {
+  const colorMap: Record<string, string> = {
+    '本色': 'bg-bamboo-300',
+    '碳化': 'bg-bambooBrown-500',
+    '竹青': 'bg-bambooGreen-400',
+    '染色黄': 'bg-yellow-400',
+    '染色红': 'bg-red-400',
+    '染色蓝': 'bg-blue-400',
+  };
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg bg-bambooCream-50/80 p-2 border border-bamboo-100">
+      <div className={cn(
+        'w-3 h-8 rounded-sm flex-shrink-0',
+        colorMap[item.color] || 'bg-bamboo-300'
+      )} />
+      <div className="flex-1 min-w-0">
+        <div className="font-kai text-xs font-medium text-bambooBrown-700 truncate">
+          {item.spec}
+        </div>
+        <div className="flex items-center gap-2 font-kai text-[10px] text-bambooBrown-500">
+          <span className="flex items-center gap-0.5">
+            <Ruler size={10} />
+            {item.lengthMm}mm
+          </span>
+          <span className="flex items-center gap-0.5">
+            <Palette size={10} />
+            {item.color}
+          </span>
+        </div>
+      </div>
+      <div className="flex-shrink-0 text-right">
+        <div className="font-song text-sm font-bold text-bambooGreen-600">
+          {item.count}
+        </div>
+        <div className="font-kai text-[10px] text-bambooBrown-400">
+          根
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepCard({
+  step,
+  index,
+  isActive,
+  isCompleted,
+  onClick,
+}: {
+  step: WeaveStepDetail;
+  index: number;
+  isActive: boolean;
+  isCompleted: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      className={cn(
+        'relative rounded-xl border p-4 cursor-pointer transition-all duration-300',
+        'hover:shadow-bamboo-hover hover:-translate-y-0.5',
+        isActive
+          ? 'border-bambooGreen-400 bg-bambooGreen-50/80 shadow-bamboo scale-[1.02] ring-2 ring-bambooGreen-300/50'
+          : isCompleted
+          ? 'border-bamboo-200 bg-bambooCream-50/70 hover:border-bamboo-300'
+          : 'border-bamboo-100 bg-bambooCream-50/40 opacity-75 hover:opacity-100'
+      )}
+    >
+      {isActive && (
+        <div className="absolute -left-1 top-1/2 -translate-y-1/2 h-8 w-1 bg-bambooGreen-500 rounded-full animate-pulse-soft" />
+      )}
+
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            'flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold font-song',
+            isActive
+              ? 'bg-bambooGreen-500 text-white'
+              : isCompleted
+              ? 'bg-bambooGreen-100 text-bambooGreen-600'
+              : 'bg-bamboo-200 text-bambooBrown-500'
+          )}>
+            {isCompleted ? <CheckCircle2 size={16} /> : index + 1}
+          </div>
+          <div>
+            <h4 className={cn(
+              'font-song text-sm font-semibold',
+              isActive ? 'text-bambooGreen-700' : 'text-bambooBrown-700'
+            )}>
+              步骤 {index + 1}
+            </h4>
+          </div>
+        </div>
+        <ChevronRight
+          size={16}
+          className={cn(
+            'mt-1 flex-shrink-0 transition-colors',
+            isActive ? 'text-bambooGreen-500' : 'text-bamboo-300'
+          )}
+        />
+      </div>
+
+      <p className={cn(
+        'font-song text-sm leading-relaxed mb-3',
+        isActive ? 'text-bambooBrown-700' : 'text-bambooBrown-600'
+      )}>
+        {step.instruction}
+      </p>
+
+      {step.matrixSlice && step.matrixSlice.length > 0 && (
+        <div className="mb-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <div className="h-3 w-1 rounded-full bg-bambooGreen-400" />
+            <span className="font-kai text-[11px] font-medium text-bambooBrown-600">
+              矩阵预览（第{step.startCount + 1}-{step.endCount}行）
+            </span>
+          </div>
+          <div className="flex justify-center">
+            <WeaveGrid
+              weaveMatrix={step.matrixSlice}
+              cellSize={20}
+              readOnly
+              className="!p-1.5"
+            />
+          </div>
+        </div>
+      )}
+
+      {step.requiredMaterials && step.requiredMaterials.length > 0 && (
+        <div className="mb-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Package size={12} className="text-bambooGreen-500" />
+            <span className="font-kai text-[11px] font-medium text-bambooBrown-600">
+              用料信息
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            {step.requiredMaterials.map((mat) => (
+              <MaterialItemCard key={mat.id} item={mat} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {step.tips && step.tips.length > 0 && (
+        <div className="mb-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <ListChecks size={12} className="text-bambooGreen-500" />
+            <span className="font-kai text-[11px] font-medium text-bambooBrown-600">
+              操作要点
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {step.tips.slice(0, 4).map((tip, tipIdx) => (
+              <li key={tipIdx} className="flex items-start gap-1.5 font-song text-[11px] text-bambooBrown-600">
+                <span className="mt-1.5 inline-block h-1 w-1 rounded-full bg-bambooGreen-400 flex-shrink-0" />
+                {tip}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-2 border-t border-bamboo-100">
+        <div className="flex items-center gap-1.5">
+          <Clock size={12} className="text-bambooBrown-400" />
+          <span className="font-kai text-[11px] text-bambooBrown-500">
+            {step.estimatedMinutes || 10} 分钟
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <AlertCircle size={12} className="text-bambooBrown-400" />
+          <DifficultyStars difficulty={step.difficulty || 2} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface MaterialSummaryItem {
+  spec: string;
+  color: string;
+  widthMm: number;
+  lengthMm: number;
+  totalCount: number;
+  cumulativeCount: number;
+  stepCounts: number[];
+}
+
+function MaterialSummary({ stepDetails, currentStepIndex }: {
+  stepDetails: WeaveStepDetail[];
+  currentStepIndex: number;
+}) {
+  const materialSummary = useMemo(() => {
+    const summary = new Map<string, MaterialSummaryItem>();
+
+    stepDetails.forEach((step, stepIdx) => {
+      step.requiredMaterials?.forEach((mat) => {
+        const key = `${mat.spec}-${mat.color}-${mat.widthMm}-${mat.lengthMm}`;
+        if (!summary.has(key)) {
+          summary.set(key, {
+            spec: mat.spec,
+            color: mat.color,
+            widthMm: mat.widthMm,
+            lengthMm: mat.lengthMm,
+            totalCount: 0,
+            cumulativeCount: 0,
+            stepCounts: new Array(stepDetails.length).fill(0),
+          });
+        }
+        const entry = summary.get(key)!;
+        entry.totalCount += mat.count;
+        if (stepIdx <= currentStepIndex) {
+          entry.cumulativeCount += mat.count;
+        }
+        entry.stepCounts[stepIdx] = mat.count;
+      });
+    });
+
+    return Array.from(summary.values());
+  }, [stepDetails, currentStepIndex]);
+
+  const totalTime = useMemo(() => {
+    return stepDetails.reduce((sum, step) => sum + (step.estimatedMinutes || 10), 0);
+  }, [stepDetails]);
+
+  const completedTime = useMemo(() => {
+    return stepDetails
+      .slice(0, currentStepIndex + 1)
+      .reduce((sum, step) => sum + (step.estimatedMinutes || 10), 0);
+  }, [stepDetails, currentStepIndex]);
+
+  return (
+    <div className="rounded-xl border border-bamboo-200 bg-bambooCream-50/80 p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-song text-sm font-semibold text-bambooBrown-700 flex items-center gap-2">
+          <Package size={16} className="text-bambooGreen-500" />
+          按步骤备料汇总
+        </h3>
+        <div className="flex items-center gap-1 font-kai text-[11px] text-bambooBrown-500">
+          <Clock size={12} />
+          <span>已用 {completedTime} / 共 {totalTime} 分钟</span>
+        </div>
+      </div>
+
+      <div className="space-y-2 max-h-48 overflow-y-auto">
+        {materialSummary.map((mat, idx) => {
+          const progress = mat.totalCount > 0 ? (mat.cumulativeCount / mat.totalCount) * 100 : 0;
+          return (
+            <div key={idx} className="rounded-lg bg-white/60 p-2.5 border border-bamboo-100">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <div className={cn(
+                    'w-2 h-6 rounded-sm',
+                    mat.color === '本色' ? 'bg-bamboo-300' :
+                    mat.color === '碳化' ? 'bg-bambooBrown-500' :
+                    mat.color === '竹青' ? 'bg-bambooGreen-400' : 'bg-bamboo-300'
+                  )} />
+                  <div>
+                    <div className="font-kai text-xs font-medium text-bambooBrown-700">
+                      {mat.spec}
+                    </div>
+                    <div className="font-kai text-[10px] text-bambooBrown-500">
+                      {mat.color} · {mat.widthMm}mm · {mat.lengthMm}mm
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-song text-sm font-bold text-bambooGreen-600">
+                    {mat.cumulativeCount} / {mat.totalCount}
+                  </div>
+                  <div className="font-kai text-[10px] text-bambooBrown-400">
+                    根
+                  </div>
+                </div>
+              </div>
+              <div className="h-1.5 rounded-full bg-bamboo-200/60 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-bambooGreen-400 to-bambooGreen-500 transition-all duration-500"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-bamboo-200">
+        <div className="flex items-center justify-between">
+          <span className="font-kai text-xs text-bambooBrown-500">
+            累计完成进度
+          </span>
+          <span className="font-song text-sm font-bold text-bambooGreen-600">
+            {Math.round(((currentStepIndex + 1) / stepDetails.length) * 100)}%
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function StepDiagram() {
-  const { layers: storeLayers } = useWeaveStore();
+  const { layers: storeLayers, stepDetails, generateStepDetails, weaveMatrix } = useWeaveStore();
 
   const [layers, setLayers] = useState<LayerWithStatus[]>([]);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
@@ -48,6 +430,21 @@ export default function StepDiagram() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [animationProgress, setAnimationProgress] = useState(0);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  const rightPanelRef = useRef<HTMLDivElement>(null);
+  const stepCardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  const displaySteps = useMemo(() => {
+    if (stepDetails && stepDetails.length > 0) {
+      return stepDetails;
+    }
+    return buildMockStepDetails();
+  }, [stepDetails]);
+
+  useEffect(() => {
+    if (weaveMatrix) {
+      generateStepDetails();
+    }
+  }, [weaveMatrix, generateStepDetails]);
 
   useEffect(() => {
     const sourceLayers = storeLayers.length > 0 ? storeLayers : buildMockLayers();
@@ -84,17 +481,18 @@ export default function StepDiagram() {
     () => selectedLayer?.steps ?? [],
     [selectedLayer]
   );
-  const currentStep = currentSteps[currentStepIndex] || null;
 
-  const totalSteps = currentSteps.length;
+  const totalSteps = displaySteps.length;
   const progressPercent = totalSteps > 0 ? ((currentStepIndex + (isPlaying ? animationProgress : 0)) / totalSteps) * 100 : 0;
+
+  const currentStep = displaySteps[currentStepIndex] || null;
 
   useEffect(() => {
     if (!isPlaying) return;
 
     const interval = setInterval(() => {
       setAnimationProgress((prev) => {
-        const next = prev + 0.02;
+        const next = prev + 0.015;
         if (next >= 1) {
           setCurrentStepIndex((idx) => {
             if (idx >= totalSteps - 1) {
@@ -111,6 +509,13 @@ export default function StepDiagram() {
 
     return () => clearInterval(interval);
   }, [isPlaying, totalSteps]);
+
+  useEffect(() => {
+    const cardEl = stepCardRefs.current.get(currentStepIndex);
+    if (cardEl && rightPanelRef.current) {
+      cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [currentStepIndex]);
 
   const handlePlayPause = useCallback(() => {
     setIsPlaying((prev) => !prev);
@@ -135,6 +540,12 @@ export default function StepDiagram() {
     setIsPlaying(false);
   }, []);
 
+  const handleStepCardClick = useCallback((index: number) => {
+    setIsPlaying(false);
+    setAnimationProgress(0);
+    setCurrentStepIndex(index);
+  }, []);
+
   const toggleStepExpand = useCallback((stepId: string) => {
     setExpandedSteps((prev) => {
       const next = new Set(prev);
@@ -146,24 +557,6 @@ export default function StepDiagram() {
       return next;
     });
   }, []);
-
-  const timelineSteps = useMemo(() => {
-    return currentSteps.map((step, idx) => ({
-      id: step.id,
-      title: step.instruction.length > 20 ? step.instruction.slice(0, 20) + '...' : `步骤 ${idx + 1}`,
-      description: step.instruction,
-      status: idx < currentStepIndex
-        ? 'completed' as const
-        : idx === currentStepIndex
-        ? 'current' as const
-        : 'pending' as const,
-      tips: [
-        `起篾数：${step.startCount}`,
-        `收篾数：${step.endCount}`,
-        idx % 2 === 0 ? '保持篾条张力均匀' : '注意挑压方向不要出错',
-      ],
-    }));
-  }, [currentSteps, currentStepIndex]);
 
   const getStatusIcon = (status: LayerStatus) => {
     switch (status) {
@@ -189,7 +582,7 @@ export default function StepDiagram() {
   };
 
   const renderWeaveAnimation = () => {
-    const pattern = currentStep?.pattern || (selectedLayer?.steps?.[0]?.pattern ?? [[1, 0, 1, 0], [0, 1, 0, 1]]);
+    const pattern = currentStep?.matrixSlice || (currentStep as any)?.pattern || MOCK_MATRIX.slice(0, 4);
     const rows = pattern.length;
     const cols = rows > 0 ? pattern[0].length : 0;
     const cellSize = 36;
@@ -422,6 +815,33 @@ export default function StepDiagram() {
                           </span>
                         )}
                       </div>
+
+                      {isSelected && layer.steps.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-bamboo-200/60">
+                          <div className="space-y-1.5">
+                            {layer.steps.slice(0, 3).map((step, stepIdx) => (
+                              <div
+                                key={step.id}
+                                className="flex items-center gap-2 text-[11px] font-kai text-bambooBrown-600"
+                              >
+                                <span className="w-4 h-4 flex items-center justify-center rounded-full bg-bamboo-200/60 text-bambooBrown-600 text-[9px]">
+                                  {stepIdx + 1}
+                                </span>
+                                <span className="truncate">
+                                  {step.instruction.length > 15
+                                    ? step.instruction.slice(0, 15) + '...'
+                                    : step.instruction}
+                                </span>
+                              </div>
+                            ))}
+                            {layer.steps.length > 3 && (
+                              <div className="text-[10px] font-kai text-bambooBrown-400 pl-6">
+                                还有 {layer.steps.length - 3} 个步骤...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -441,6 +861,14 @@ export default function StepDiagram() {
               <p className="font-kai text-sm text-bambooBrown-500 mt-1">
                 {selectedLayer?.description || '选择左侧图层查看编织动画'}
               </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <div className="font-kai text-xs text-bambooBrown-500">当前步骤</div>
+                <div className="font-song text-lg font-bold text-bambooGreen-600">
+                  {currentStepIndex + 1} / {totalSteps}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -507,143 +935,46 @@ export default function StepDiagram() {
             </div>
           </div>
         </div>
+
+        <div className="border-t border-bamboo-200 bg-bambooCream-50/80 px-6 py-3">
+          <MaterialSummary
+            stepDetails={displaySteps}
+            currentStepIndex={currentStepIndex}
+          />
+        </div>
       </div>
 
-      <div className="w-96 flex-shrink-0 border-l border-bamboo-200 bg-bambooCream-50/60 backdrop-blur-sm overflow-y-auto">
-        <div className="p-5 border-b border-bamboo-200 bg-gradient-to-l from-bambooCream-100/80 to-bamboo-100/60">
-          <h2 className="font-song text-lg font-semibold text-bambooBrown-800">工序详情</h2>
+      <div
+        ref={rightPanelRef}
+        className="w-96 flex-shrink-0 border-l border-bamboo-200 bg-bambooCream-50/60 backdrop-blur-sm overflow-y-auto"
+      >
+        <div className="p-5 border-b border-bamboo-200 bg-gradient-to-l from-bambooCream-100/80 to-bamboo-100/60 sticky top-0 z-10">
+          <h2 className="font-song text-lg font-semibold text-bambooBrown-800">工序卡片</h2>
           <p className="font-kai text-xs text-bambooBrown-500 mt-0.5">
-            {selectedLayer ? `${currentSteps.length} 个编织步骤` : '请选择图层'}
+            共 {displaySteps.length} 个编织步骤
           </p>
         </div>
 
-        {selectedLayer && currentSteps.length > 0 ? (
-          <div className="p-4">
-            <StepTimeline steps={timelineSteps} className="mb-6" />
-
-            <div className="space-y-4">
-              <h3 className="font-song text-base font-semibold text-bambooBrown-700 flex items-center gap-2">
-                <span className="h-4 w-1 rounded-full bg-bambooGreen-500" />
-                当前步骤详情
-              </h3>
-
-              <div className="rounded-xl border border-bamboo-200 bg-white/80 p-4 shadow-sm">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <div className="font-kai text-xs text-bambooBrown-400 mb-1">
-                      步骤 {currentStepIndex + 1}
-                    </div>
-                    <h4 className="font-song text-sm font-semibold text-bambooBrown-800">
-                      {currentStep?.instruction.slice(0, 30)}
-                      {currentStep && currentStep.instruction.length > 30 ? '...' : ''}
-                    </h4>
-                  </div>
-                  <button
-                    onClick={() => currentStep && toggleStepExpand(currentStep.id)}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-bamboo-100 text-bambooBrown-600 hover:bg-bamboo-200 transition-colors"
-                  >
-                    {expandedSteps.has(currentStep?.id || '') ? (
-                      <ChevronUp size={16} />
-                    ) : (
-                      <ChevronDown size={16} />
-                    )}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div className="rounded-lg bg-bambooCream-100/70 p-3">
-                    <div className="font-kai text-[11px] text-bambooBrown-400 mb-1">起篾数</div>
-                    <div className="font-song text-xl font-bold text-bambooGreen-600">
-                      {currentStep?.startCount ?? 0}
-                    </div>
-                  </div>
-                  <div className="rounded-lg bg-bambooCream-100/70 p-3">
-                    <div className="font-kai text-[11px] text-bambooBrown-400 mb-1">收篾数</div>
-                    <div className="font-song text-xl font-bold text-bambooBrown-600">
-                      {currentStep?.endCount ?? 0}
-                    </div>
-                  </div>
-                </div>
-
-                <p className="font-song text-sm text-bambooBrown-600 leading-relaxed mb-3">
-                  {currentStep?.instruction}
-                </p>
-
-                {expandedSteps.has(currentStep?.id || '') && currentStep?.pattern && (
-                  <div className="mt-4 pt-4 border-t border-bamboo-100">
-                    <div className="mb-3">
-                      <h5 className="font-kai text-xs font-semibold text-bambooBrown-600 mb-2">
-                        挑压小图预览
-                      </h5>
-                      <div className="flex justify-center">
-                        <WeaveGrid
-                          weaveMatrix={currentStep.pattern}
-                          cellSize={28}
-                          readOnly
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <h5 className="font-kai text-xs font-semibold text-bambooBrown-600 mb-2">
-                        分层拆解说明
-                      </h5>
-                      <div className="space-y-2">
-                        <div className="flex items-start gap-2 rounded-lg bg-bambooGreen-50/60 p-2.5">
-                          <div className="h-2 w-2 mt-1.5 rounded-full bg-bambooGreen-500 flex-shrink-0" />
-                          <p className="font-song text-xs text-bambooBrown-700">
-                            经篾层：{selectedLayer.warpSubset?.length || currentStep.pattern[0]?.length || 0} 根经篾已固定，作为编织基底
-                          </p>
-                        </div>
-                        <div className="flex items-start gap-2 rounded-lg bg-bamboo-100/60 p-2.5">
-                          <div className="h-2 w-2 mt-1.5 rounded-full bg-bamboo-500 flex-shrink-0" />
-                          <p className="font-song text-xs text-bambooBrown-700">
-                            纬篾层：第 {currentStep.startCount} - {currentStep.endCount} 根纬篾按挑压规律穿引
-                          </p>
-                        </div>
-                        <div className="flex items-start gap-2 rounded-lg bg-bambooBrown-100/50 p-2.5">
-                          <div className="h-2 w-2 mt-1.5 rounded-full bg-bambooBrown-500 flex-shrink-0" />
-                          <p className="font-song text-xs text-bambooBrown-700">
-                            完成此步骤后，将形成 {currentStep.pattern.length} 行 × {currentStep.pattern[0]?.length || 0} 列的编织结构
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-xl border border-bambooGreen-200 bg-bambooGreen-50/60 p-4">
-                <h4 className="font-kai text-sm font-semibold text-bambooGreen-700 mb-2">
-                  工艺要点
-                </h4>
-                <ul className="space-y-1.5">
-                  <li className="flex items-start gap-2 font-song text-xs text-bambooBrown-700">
-                    <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-bambooGreen-500 flex-shrink-0" />
-                    保持篾条张力均匀，避免过紧或过松
-                  </li>
-                  <li className="flex items-start gap-2 font-song text-xs text-bambooBrown-700">
-                    <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-bambooGreen-500 flex-shrink-0" />
-                    每根纬篾穿引后需用工具压实
-                  </li>
-                  <li className="flex items-start gap-2 font-song text-xs text-bambooBrown-700">
-                    <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-bambooGreen-500 flex-shrink-0" />
-                    注意挑压方向，挑为经篾在上，压为纬篾在上
-                  </li>
-                </ul>
-              </div>
+        <div className="p-4 space-y-4">
+          {displaySteps.map((step, index) => (
+            <div
+              key={step.id}
+              ref={(el) => {
+                if (el) {
+                  stepCardRefs.current.set(index, el);
+                }
+              }}
+            >
+              <StepCard
+                step={step}
+                index={index}
+                isActive={index === currentStepIndex}
+                isCompleted={index < currentStepIndex}
+                onClick={() => handleStepCardClick(index)}
+              />
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-64 px-6">
-            <Layers size={48} className="text-bamboo-300 mb-4" />
-            <p className="font-song text-sm text-bambooBrown-500 text-center">
-              请从左侧选择一个图层
-              <br />
-              查看详细工序信息
-            </p>
-          </div>
-        )}
+          ))}
+        </div>
       </div>
     </div>
   );

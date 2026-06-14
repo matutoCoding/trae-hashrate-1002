@@ -141,3 +141,26 @@ body {
   stroke-dashoffset: 1000;
   animation: drawLine 1.5s ease-out forwards;
 }
+
+/* 修正模式脉冲环动画 */
+.animate-pulse-ring {
+  border: 2px solid #c0392b;
+  animation: pulseRing 1.5s ease-out infinite;
+}
+
+@keyframes pulseRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* 修正模式关联格子高亮 */
+.highlight-affect {
+  background-color: rgba(251, 191, 36, 0.4) !important;
+  border-color: rgba(217, 119, 6, 0.5) !important;
+}

@@ -1,11 +1,11 @@
-import { useEffect, useMemo } from 'react';
-import { Binary, AlertTriangle, CheckCircle2, Ruler, Eye, Lock } from 'lucide-react';
+import { useEffect, useMemo, useCallback } from 'react';
+import { Binary, AlertTriangle, CheckCircle2, Ruler, Eye, Lock, Wand2, ChevronUp, ChevronDown, X, Lightbulb, Target } from 'lucide-react';
 import { useWeaveStore } from '@/store/weaveStore';
 import { calcDensity, calcPorosity, calcLightTransmission } from '@/utils/algorithms/calculator';
 import { validateClosure } from '@/utils/algorithms/validator';
 import WeaveGrid from '@/components/WeaveGrid';
 import GaugeMeter from '@/components/GaugeMeter';
-import type { WeaveCell, WeaveMatrix, ValidationError, ValidationWarning } from '@/types';
+import type { WeaveCell, WeaveMatrix, ValidationError, ValidationWarning, CorrectionContext, HighlightCell } from '@/types';
 
 function generateMockMatrix(): WeaveMatrix {
   const rows = 8;
@@ -48,10 +48,13 @@ export default function WeaveCoding() {
     weaveMatrix,
     weaveParams,
     validationResult,
+    correctionContext,
     setWeaveMatrix,
     setParams,
     updateCell,
     runValidation,
+    setCorrectionContext,
+    applySuggestionFix,
   } = useWeaveStore();
 
   useEffect(() => {
@@ -100,11 +103,226 @@ export default function WeaveCoding() {
   const handleCellClick = (row: number, col: number, value: WeaveCell) => {
     updateCell(row, col, 'warp', value);
     updateCell(row, col, 'weft', (value === 1 ? 0 : 1) as WeaveCell);
+
+    if (correctionContext) {
+      runValidation();
+
+      setTimeout(() => {
+        const state = useWeaveStore.getState();
+        const newErrors = (state.validationResult?.errors || []).filter(e => e.row !== undefined && e.col !== undefined);
+        const newWarnings = (state.validationResult?.warnings || []).filter(w => w.row !== undefined && w.col !== undefined);
+        const newAllIssues = [
+          ...newErrors.map(e => ({ ...e, level: 'error' as const })),
+          ...newWarnings.map(w => ({ ...w, level: 'warning' as const })),
+        ];
+
+        if (newAllIssues.length === 0) {
+          setCorrectionContext(null);
+          return;
+        }
+
+        const samePositionIssue = newAllIssues.find(
+          issue => issue.row === correctionContext.row && issue.col === correctionContext.col
+        );
+
+        if (samePositionIssue && samePositionIssue.row !== undefined && samePositionIssue.col !== undefined) {
+          const relatedCells = buildRelatedCells(samePositionIssue.row, samePositionIssue.col);
+          const currentIdx = newAllIssues.findIndex(
+            issue => issue.row === samePositionIssue.row && issue.col === samePositionIssue.col
+          );
+          setCorrectionContext({
+            row: samePositionIssue.row,
+            col: samePositionIssue.col,
+            errorType: samePositionIssue.type,
+            suggestion: samePositionIssue.suggestion,
+            relatedCells,
+            fixAction: 'flip',
+            currentIndex: currentIdx >= 0 ? currentIdx : 0,
+            totalCount: newAllIssues.length,
+          });
+        } else {
+          const currentIdx = correctionContext.currentIndex ?? 0;
+          const nextIdx = Math.min(currentIdx, newAllIssues.length - 1);
+          const nextIssue = newAllIssues[nextIdx];
+
+          if (nextIssue && nextIssue.row !== undefined && nextIssue.col !== undefined) {
+            const relatedCells = buildRelatedCells(nextIssue.row, nextIssue.col);
+            setCorrectionContext({
+              row: nextIssue.row,
+              col: nextIssue.col,
+              errorType: nextIssue.type,
+              suggestion: nextIssue.suggestion,
+              relatedCells,
+              fixAction: 'flip',
+              currentIndex: nextIdx,
+              totalCount: newAllIssues.length,
+            });
+          } else {
+            setCorrectionContext(null);
+          }
+        }
+      }, 50);
+    } else {
+      runValidation();
+    }
   };
 
   const handleParamChange = (key: keyof typeof weaveParams, value: string) => {
     const num = parseFloat(value) || 0;
     setParams({ [key]: num });
+  };
+
+  const allIssues = useMemo(() => {
+    const errors = (validationResult?.errors || []).filter(e => e.row !== undefined && e.col !== undefined);
+    const warnings = (validationResult?.warnings || []).filter(w => w.row !== undefined && w.col !== undefined);
+    return [
+      ...errors.map(e => ({ ...e, level: 'error' as const })),
+      ...warnings.map(w => ({ ...w, level: 'warning' as const })),
+    ];
+  }, [validationResult]);
+
+  const buildRelatedCells = useCallback((row: number, col: number): HighlightCell[] => {
+    const cells: HighlightCell[] = [];
+    cells.push({ row, col, role: 'target' });
+    if (weaveMatrix) {
+      for (let c = 0; c < weaveMatrix.cols; c++) {
+        if (c !== col) {
+          cells.push({ row, col: c, role: 'affect' });
+        }
+      }
+      for (let r = 0; r < weaveMatrix.rows; r++) {
+        if (r !== row) {
+          cells.push({ row: r, col, role: 'affect' });
+        }
+      }
+    }
+    return cells;
+  }, [weaveMatrix]);
+
+  const handleEnterCorrection = useCallback((issue: ValidationError | (ValidationWarning & { level?: string }), index: number) => {
+    if (issue.row === undefined || issue.col === undefined) return;
+
+    const relatedCells = buildRelatedCells(issue.row, issue.col);
+
+    setCorrectionContext({
+      row: issue.row,
+      col: issue.col,
+      errorType: issue.type,
+      suggestion: issue.suggestion,
+      relatedCells,
+      fixAction: 'flip',
+      currentIndex: index,
+      totalCount: allIssues.length,
+    });
+  }, [buildRelatedCells, allIssues.length, setCorrectionContext]);
+
+  const handleExitCorrection = useCallback(() => {
+    setCorrectionContext(null);
+  }, [setCorrectionContext]);
+
+  const handlePrevIssue = useCallback(() => {
+    if (!correctionContext || correctionContext.currentIndex === undefined) return;
+    const prevIndex = correctionContext.currentIndex - 1;
+    if (prevIndex >= 0 && allIssues[prevIndex]) {
+      const issue = allIssues[prevIndex];
+      const relatedCells = buildRelatedCells(issue.row!, issue.col!);
+      setCorrectionContext({
+        row: issue.row!,
+        col: issue.col!,
+        errorType: issue.type,
+        suggestion: issue.suggestion,
+        relatedCells,
+        fixAction: 'flip',
+        currentIndex: prevIndex,
+        totalCount: allIssues.length,
+      });
+    }
+  }, [correctionContext, allIssues, buildRelatedCells, setCorrectionContext]);
+
+  const handleNextIssue = useCallback(() => {
+    if (!correctionContext || correctionContext.currentIndex === undefined) return;
+    const nextIndex = correctionContext.currentIndex + 1;
+    if (nextIndex < allIssues.length && allIssues[nextIndex]) {
+      const issue = allIssues[nextIndex];
+      const relatedCells = buildRelatedCells(issue.row!, issue.col!);
+      setCorrectionContext({
+        row: issue.row!,
+        col: issue.col!,
+        errorType: issue.type,
+        suggestion: issue.suggestion,
+        relatedCells,
+        fixAction: 'flip',
+        currentIndex: nextIndex,
+        totalCount: allIssues.length,
+      });
+    }
+  }, [correctionContext, allIssues, buildRelatedCells, setCorrectionContext]);
+
+  const handleApplySuggestion = useCallback(() => {
+    if (!correctionContext) return;
+
+    const { row, col } = correctionContext;
+    const currentVal = weaveMatrix?.warpCodes[row]?.[col];
+    if (currentVal !== undefined) {
+      const newVal = (currentVal === 1 ? 0 : 1) as WeaveCell;
+      updateCell(row, col, 'warp', newVal);
+      updateCell(row, col, 'weft', (newVal === 1 ? 0 : 1) as WeaveCell);
+    }
+
+    runValidation();
+
+    setTimeout(() => {
+      const state = useWeaveStore.getState();
+      const newErrors = (state.validationResult?.errors || []).filter(e => e.row !== undefined && e.col !== undefined);
+      const newWarnings = (state.validationResult?.warnings || []).filter(w => w.row !== undefined && w.col !== undefined);
+      const newAllIssues = [
+        ...newErrors.map(e => ({ ...e, level: 'error' as const })),
+        ...newWarnings.map(w => ({ ...w, level: 'warning' as const })),
+      ];
+
+      if (newAllIssues.length === 0) {
+        setCorrectionContext(null);
+        return;
+      }
+
+      const currentIdx = correctionContext.currentIndex ?? 0;
+      const nextIdx = Math.min(currentIdx, newAllIssues.length - 1);
+      const nextIssue = newAllIssues[nextIdx];
+
+      if (nextIssue && nextIssue.row !== undefined && nextIssue.col !== undefined) {
+        const relatedCells = buildRelatedCells(nextIssue.row, nextIssue.col);
+        setCorrectionContext({
+          row: nextIssue.row,
+          col: nextIssue.col,
+          errorType: nextIssue.type,
+          suggestion: nextIssue.suggestion,
+          relatedCells,
+          fixAction: 'flip',
+          currentIndex: nextIdx,
+          totalCount: newAllIssues.length,
+        });
+      } else {
+        setCorrectionContext(null);
+      }
+    }, 50);
+  }, [correctionContext, weaveMatrix, updateCell, runValidation, buildRelatedCells, setCorrectionContext]);
+
+  const highlightCells = useMemo((): HighlightCell[] => {
+    if (!correctionContext) return [];
+    return correctionContext.relatedCells || [];
+  }, [correctionContext]);
+
+  const getErrorTypeLabel = (type: string): string => {
+    const labelMap: Record<string, string> = {
+      'open_end': '散口风险',
+      'misalignment': '挑压错位',
+      'color_shift': '配色不一致',
+      'dense_pattern': '密集模式',
+      'consecutive_same': '连续同态',
+      'block_same': '区块同态',
+      'edge_unstable': '边缘不稳',
+    };
+    return labelMap[type] || type;
   };
 
   return (
@@ -281,6 +499,7 @@ export default function WeaveCoding() {
                   weaveMatrix={weaveMatrix.warpCodes}
                   onCellClick={handleCellClick}
                   cellSize={36}
+                  highlightCells={highlightCells}
                 />
               )}
             </div>
@@ -506,124 +725,221 @@ export default function WeaveCoding() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-song text-bambooBrown-700 font-semibold">异常位置汇总</span>
-                {(() => {
-                  const errors = (validationResult?.errors || []).filter(e => e.row !== undefined || e.col !== undefined);
-                  const warnings = (validationResult?.warnings || []).filter(w => w.row !== undefined || w.col !== undefined);
-                  const total = errors.length + warnings.length;
-                  if (total > 0) {
+              {correctionContext ? (
+                <div className="rounded-lg border border-warning/30 bg-warning/5 overflow-hidden">
+                  <div className="flex items-center justify-between p-3 border-b border-warning/20 bg-warning/10">
+                    <div className="flex items-center gap-2">
+                      <Target className="w-4 h-4 text-warning" />
+                      <span className="text-sm font-song text-warning-dark font-semibold">局部修正模式</span>
+                    </div>
+                    <button
+                      onClick={handleExitCorrection}
+                      className="p-1 rounded hover:bg-warning/20 transition-colors"
+                      title="退出修正模式"
+                    >
+                      <X className="w-4 h-4 text-warning-dark" />
+                    </button>
+                  </div>
+
+                  <div className="p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-kai text-bambooBrown-600">
+                        {correctionContext.currentIndex !== undefined && correctionContext.totalCount !== undefined
+                          ? `第 ${correctionContext.currentIndex + 1} / ${correctionContext.totalCount} 个`
+                          : '修正中'}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={handlePrevIssue}
+                          disabled={correctionContext.currentIndex === 0}
+                          className="p-1.5 rounded bg-bambooCream-200 hover:bg-bambooCream-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          title="上一个异常"
+                        >
+                          <ChevronUp className="w-4 h-4 text-bambooBrown-700" />
+                        </button>
+                        <button
+                          onClick={handleNextIssue}
+                          disabled={
+                            correctionContext.currentIndex === undefined ||
+                            correctionContext.totalCount === undefined ||
+                            correctionContext.currentIndex >= correctionContext.totalCount - 1
+                          }
+                          className="p-1.5 rounded bg-bambooCream-200 hover:bg-bambooCream-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          title="下一个异常"
+                        >
+                          <ChevronDown className="w-4 h-4 text-bambooBrown-700" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-kai text-bambooBrown-500">当前位置</label>
+                        <p className="text-sm font-song text-bambooBrown-800 font-semibold mt-0.5">
+                          第 {correctionContext.row + 1} 行，第 {correctionContext.col + 1} 列
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-kai text-bambooBrown-500">错误类型</label>
+                        <div className="mt-0.5">
+                          <span className="inline-block px-2 py-0.5 rounded bg-warning/20 text-warning-dark text-xs font-kai font-semibold">
+                            {getErrorTypeLabel(correctionContext.errorType)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {correctionContext.suggestion && (
+                        <div className="p-3 rounded-lg bg-bambooGreen-50/80 border border-bambooGreen-200">
+                          <div className="flex items-start gap-2">
+                            <Lightbulb className="w-4 h-4 text-bambooGreen-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-xs font-kai text-bambooGreen-700 font-semibold">修正建议</p>
+                              <p className="text-sm font-song text-bambooBrown-700 mt-1">
+                                {correctionContext.suggestion}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="pt-2 space-y-2">
+                        <button
+                          onClick={handleApplySuggestion}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-warning text-white rounded-lg font-song text-sm hover:bg-warning-dark transition-colors shadow-md hover:shadow-lg"
+                        >
+                          <Wand2 className="w-4 h-4" />
+                          按建议翻转
+                        </button>
+
+                        <button
+                          onClick={handleExitCorrection}
+                          className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-bambooCream-200 text-bambooBrown-700 rounded-lg font-song text-sm hover:bg-bambooCream-300 transition-colors border border-bamboo-300"
+                        >
+                          退出修正模式
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-song text-bambooBrown-700 font-semibold">异常位置汇总</span>
+                    {(() => {
+                      const errors = (validationResult?.errors || []).filter(e => e.row !== undefined || e.col !== undefined);
+                      const warnings = (validationResult?.warnings || []).filter(w => w.row !== undefined || w.col !== undefined);
+                      const total = errors.length + warnings.length;
+                      if (total > 0) {
+                        return (
+                          <div className="flex items-center gap-1.5">
+                            {errors.length > 0 && (
+                              <span className="px-2 py-0.5 rounded-full bg-warning text-white text-xs font-kai">
+                                错误 {errors.length}
+                              </span>
+                            )}
+                            {warnings.length > 0 && (
+                              <span className="px-2 py-0.5 rounded-full bg-bamboo-500 text-white text-xs font-kai">
+                                警告 {warnings.length}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                  {(() => {
+                    const errors = (validationResult?.errors || []).filter(e => e.row !== undefined && e.col !== undefined);
+                    const warnings = (validationResult?.warnings || []).filter(w => w.row !== undefined && w.col !== undefined);
+                    const allIssuesList = [...errors.map(e => ({ ...e, level: 'error' as const })), ...warnings.map(w => ({ ...w, level: 'warning' as const }))];
+                    const hasIssue = allIssuesList.length > 0;
+
                     return (
-                      <div className="flex items-center gap-1.5">
-                        {errors.length > 0 && (
-                          <span className="px-2 py-0.5 rounded-full bg-warning text-white text-xs font-kai">
-                            错误 {errors.length}
-                          </span>
-                        )}
-                        {warnings.length > 0 && (
-                          <span className="px-2 py-0.5 rounded-full bg-bamboo-500 text-white text-xs font-kai">
-                            警告 {warnings.length}
-                          </span>
+                      <div className={`rounded-lg border overflow-hidden ${
+                        hasIssue ? 'bg-warning/5 border-warning/30' : 'bg-bambooGreen-50/60 border-bambooGreen-200'
+                      }`}>
+                        {hasIssue ? (
+                          <div>
+                            <div className="flex items-start gap-2 p-3 border-b border-warning/20">
+                              <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                              <div className="flex-1">
+                                <p className="text-sm font-song text-warning-dark font-semibold">
+                                  检测到 {allIssuesList.length} 处异常位置
+                                </p>
+                                <p className="text-xs font-kai text-bambooBrown-600 mt-0.5">
+                                  包含散口、挑压错位、配色错位等问题，建议逐个修正
+                                </p>
+                              </div>
+                            </div>
+                            <div className="max-h-[280px] overflow-y-auto divide-y divide-warning/10">
+                              {allIssuesList.map((issue, idx) => (
+                                <div key={`issue-${idx}`} className={`p-2.5 hover:bg-warning/10 transition-colors ${
+                                  issue.level === 'error' ? 'bg-warning/5' : ''
+                                }`}>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {(issue.row !== undefined || issue.col !== undefined) && (
+                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-kai ${
+                                            issue.level === 'error'
+                                              ? 'bg-warning/20 text-warning-dark'
+                                              : 'bg-bamboo-200/60 text-bamboo-700'
+                                          }`}>
+                                            📍 位置: {issue.row !== undefined ? `行${issue.row + 1}` : ''}
+                                            {issue.row !== undefined && issue.col !== undefined ? '，' : ''}
+                                            {issue.col !== undefined ? `列${issue.col + 1}` : ''}
+                                          </span>
+                                        )}
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-kai ${
+                                          issue.type === 'color_shift'
+                                            ? 'bg-bamboo-100 text-bamboo-700'
+                                            : issue.type === 'open_end'
+                                            ? 'bg-warning/15 text-warning-dark'
+                                            : issue.type === 'misalignment'
+                                            ? 'bg-bambooBrown-100 text-bambooBrown-700'
+                                            : 'bg-bambooCream-200 text-bambooBrown-700'
+                                        }`}>
+                                          {getErrorTypeLabel(issue.type)}
+                                        </span>
+                                      </div>
+                                      <p className="text-xs font-song text-bambooBrown-700 mt-1">{issue.message}</p>
+                                      {issue.suggestion && (
+                                        <p className="text-[10px] font-kai text-bambooGreen-700 mt-1">
+                                          💡 {issue.suggestion}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col items-end gap-1 shrink-0">
+                                      <button
+                                        onClick={() => handleEnterCorrection(issue, idx)}
+                                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-kai bg-warning text-white rounded hover:bg-warning-dark transition-colors"
+                                      >
+                                        <Target className="w-3 h-3" />
+                                        进入修正
+                                      </button>
+                                      {issue.level === 'error' && (
+                                        <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse-soft" />
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-3 flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-bambooGreen-600" />
+                            <p className="text-sm font-song text-bambooGreen-700">
+                              未检测到异常位置，挑压结构良好
+                            </p>
+                          </div>
                         )}
                       </div>
                     );
-                  }
-                  return null;
-                })()}
-              </div>
-              {(() => {
-                const errors = (validationResult?.errors || []).filter(e => e.row !== undefined || e.col !== undefined);
-                const warnings = (validationResult?.warnings || []).filter(w => w.row !== undefined || w.col !== undefined);
-                const allIssues = [...errors.map(e => ({ ...e, level: 'error' })), ...warnings.map(w => ({ ...w, level: 'warning' }))];
-                const hasIssue = allIssues.length > 0;
-
-                const getTypeLabel = (type: string) => {
-                  const labelMap: Record<string, string> = {
-                    'open_end': '散口风险',
-                    'misalignment': '挑压错位',
-                    'color_shift': '配色不一致',
-                    'dense_pattern': '密集模式',
-                    'consecutive_same': '连续同态',
-                    'block_same': '区块同态',
-                    'edge_unstable': '边缘不稳',
-                  };
-                  return labelMap[type] || type;
-                };
-
-                return (
-                  <div className={`rounded-lg border overflow-hidden ${
-                    hasIssue ? 'bg-warning/5 border-warning/30' : 'bg-bambooGreen-50/60 border-bambooGreen-200'
-                  }`}>
-                    {hasIssue ? (
-                      <div>
-                        <div className="flex items-start gap-2 p-3 border-b border-warning/20">
-                          <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                          <div className="flex-1">
-                            <p className="text-sm font-song text-warning-dark font-semibold">
-                              检测到 {allIssues.length} 处异常位置
-                            </p>
-                            <p className="text-xs font-kai text-bambooBrown-600 mt-0.5">
-                              包含散口、挑压错位、配色错位等问题，建议逐个修正
-                            </p>
-                          </div>
-                        </div>
-                        <div className="max-h-[280px] overflow-y-auto divide-y divide-warning/10">
-                          {allIssues.map((issue, idx) => (
-                            <div key={`issue-${idx}`} className={`p-2.5 hover:bg-warning/10 transition-colors ${
-                              issue.level === 'error' ? 'bg-warning/5' : ''
-                            }`}>
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    {(issue.row !== undefined || issue.col !== undefined) && (
-                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-kai ${
-                                        issue.level === 'error'
-                                          ? 'bg-warning/20 text-warning-dark'
-                                          : 'bg-bamboo-200/60 text-bamboo-700'
-                                      }`}>
-                                        📍 位置: {issue.row !== undefined ? `行${issue.row + 1}` : ''}
-                                        {issue.row !== undefined && issue.col !== undefined ? '，' : ''}
-                                        {issue.col !== undefined ? `列${issue.col + 1}` : ''}
-                                      </span>
-                                    )}
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-kai ${
-                                      issue.type === 'color_shift'
-                                        ? 'bg-bamboo-100 text-bamboo-700'
-                                        : issue.type === 'open_end'
-                                        ? 'bg-warning/15 text-warning-dark'
-                                        : issue.type === 'misalignment'
-                                        ? 'bg-bambooBrown-100 text-bambooBrown-700'
-                                        : 'bg-bambooCream-200 text-bambooBrown-700'
-                                    }`}>
-                                      {getTypeLabel(issue.type)}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs font-song text-bambooBrown-700 mt-1">{issue.message}</p>
-                                  {issue.suggestion && (
-                                    <p className="text-[10px] font-kai text-bambooGreen-700 mt-1">
-                                      💡 {issue.suggestion}
-                                    </p>
-                                  )}
-                                </div>
-                                {issue.level === 'error' && (
-                                  <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-warning mt-1.5 animate-pulse-soft" />
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-3 flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-bambooGreen-600" />
-                        <p className="text-sm font-song text-bambooGreen-700">
-                          未检测到异常位置，挑压结构良好
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+                  })()}
+                </>
+              )}
             </div>
           </div>
         </section>
