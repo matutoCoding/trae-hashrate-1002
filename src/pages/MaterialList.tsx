@@ -43,22 +43,27 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
-const MOCK_MATERIALS: MaterialItem[] = [
-  { id: generateId(), spec: '经篾-主骨架', color: '本色', widthMm: 5, lengthMm: 420, count: 60, processIndex: 0 },
-  { id: generateId(), spec: '经篾-加强', color: '碳化', widthMm: 6, lengthMm: 420, count: 12, processIndex: 0 },
-  { id: generateId(), spec: '经篾-边框', color: '本色', widthMm: 8, lengthMm: 450, count: 8, processIndex: 0 },
-  { id: generateId(), spec: '纬篾-基础', color: '本色', widthMm: 5, lengthMm: 380, count: 72, processIndex: 1 },
-  { id: generateId(), spec: '纬篾-花纹', color: '竹青', widthMm: 4, lengthMm: 380, count: 24, processIndex: 1 },
-  { id: generateId(), spec: '纬篾-花纹', color: '染色红', widthMm: 4, lengthMm: 380, count: 12, processIndex: 1 },
-  { id: generateId(), spec: '收边篾', color: '碳化', widthMm: 6, lengthMm: 500, count: 16, processIndex: 2 },
-  { id: generateId(), spec: '装饰篾-图案', color: '染色蓝', widthMm: 3, lengthMm: 200, count: 30, processIndex: 3 },
-  { id: generateId(), spec: '装饰篾-镶边', color: '染色黄', widthMm: 3, lengthMm: 150, count: 20, processIndex: 3 },
-];
+function buildDefaultMaterials(params: { bambooWidth: number; bambooGap: number; finishedWidth: number; finishedHeight: number; lossRate: number }): MaterialItem[] {
+  const unitLength = params.bambooWidth + params.bambooGap;
+  const warpCount = Math.max(8, Math.ceil(params.finishedWidth / unitLength));
+  const weftCount = Math.max(8, Math.ceil(params.finishedHeight / unitLength));
+  const warpLength = Math.ceil(params.finishedHeight * params.lossRate);
+  const weftLength = Math.ceil(params.finishedWidth * params.lossRate);
+  return [
+    { id: generateId(), spec: '经篾-主骨架', color: '本色', widthMm: params.bambooWidth, lengthMm: warpLength, count: Math.floor(warpCount * 0.7), processIndex: 0 },
+    { id: generateId(), spec: '经篾-加强', color: '碳化', widthMm: params.bambooWidth + 1, lengthMm: warpLength, count: Math.max(4, Math.floor(warpCount * 0.2)), processIndex: 0 },
+    { id: generateId(), spec: '经篾-边框', color: '本色', widthMm: params.bambooWidth + 3, lengthMm: Math.ceil(warpLength * 1.05), count: 4, processIndex: 0 },
+    { id: generateId(), spec: '纬篾-基础', color: '本色', widthMm: params.bambooWidth, lengthMm: weftLength, count: Math.floor(weftCount * 0.7), processIndex: 1 },
+    { id: generateId(), spec: '纬篾-花纹', color: '竹青', widthMm: params.bambooWidth - 1, lengthMm: weftLength, count: Math.max(4, Math.floor(weftCount * 0.3)), processIndex: 1 },
+    { id: generateId(), spec: '收边篾', color: '碳化', widthMm: params.bambooWidth + 1, lengthMm: Math.ceil(Math.max(params.finishedWidth, params.finishedHeight) * params.lossRate * 1.1), count: 8, processIndex: 2 },
+    { id: generateId(), spec: '装饰篾-镶边', color: '染色黄', widthMm: Math.max(2, params.bambooWidth - 2), lengthMm: Math.ceil(Math.max(params.finishedWidth, params.finishedHeight) * 0.5), count: 10, processIndex: 3 },
+  ];
+}
 
 export default function MaterialList() {
   const { weaveParams, setParams, calculateMaterials, materials } = useWeaveStore();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['warp', 'weft', 'color']));
-  const [localMaterials, setLocalMaterials] = useState<MaterialItem[]>(MOCK_MATERIALS);
+  const [localMaterials, setLocalMaterials] = useState<MaterialItem[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newItem, setNewItem] = useState<Partial<MaterialItem>>({
     spec: '',
@@ -72,8 +77,10 @@ export default function MaterialList() {
   useEffect(() => {
     if (materials.length > 0) {
       setLocalMaterials(materials);
+    } else {
+      setLocalMaterials(buildDefaultMaterials(weaveParams));
     }
-  }, [materials]);
+  }, [materials, weaveParams]);
 
   const groups = useMemo<MaterialGroupData[]>(() => {
     const warpItems = localMaterials.filter((m) => m.spec.includes('经篾'));
@@ -255,7 +262,7 @@ export default function MaterialList() {
                   />
                 </div>
                 <div>
-                  <label className="label-bamboo">成品宽 (cm)</label>
+                  <label className="label-bamboo">成品宽 (mm)</label>
                   <input
                     type="number"
                     className="input-bamboo"
@@ -264,7 +271,7 @@ export default function MaterialList() {
                   />
                 </div>
                 <div>
-                  <label className="label-bamboo">成品高 (cm)</label>
+                  <label className="label-bamboo">成品高 (mm)</label>
                   <input
                     type="number"
                     className="input-bamboo"

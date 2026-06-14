@@ -508,33 +508,80 @@ export default function WeaveCoding() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-song text-bambooBrown-700 font-semibold">配色错位预警</span>
+                {(() => {
+                  const colorErrors = (validationResult?.errors || []).filter(e => e.type === 'color_shift');
+                  const colorWarnings = (validationResult?.warnings || []).filter(w => w.type === 'color_shift');
+                  const total = colorErrors.length + colorWarnings.length;
+                  return total > 0 ? (
+                    <span className="px-2 py-0.5 rounded-full bg-warning text-white text-xs font-kai">
+                      {total} 处异常
+                    </span>
+                  ) : null;
+                })()}
               </div>
-              <div className={`p-3 rounded-lg border ${
-                validationResult?.errors.some(e => e.type === 'color_shift') ||
-                validationResult?.warnings.some(w => w.type === 'color_shift')
-                  ? 'bg-warning/5 border-warning/30'
-                  : 'bg-bambooGreen-50/60 border-bambooGreen-200'
-              }`}>
-                {validationResult?.errors.some(e => e.type === 'color_shift') ||
-                 validationResult?.warnings.some(w => w.type === 'color_shift') ? (
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-song text-warning-dark font-semibold">检测到配色错位</p>
-                      <p className="text-xs font-kai text-bambooBrown-600 mt-1">
-                        部分相同挑压区域配色不一致，请检查配色矩阵
-                      </p>
-                    </div>
+              {(() => {
+                const colorErrors = (validationResult?.errors || []).filter(e => e.type === 'color_shift');
+                const colorWarnings = (validationResult?.warnings || []).filter(w => w.type === 'color_shift');
+                const allColorIssues = [...colorErrors, ...colorWarnings];
+                const hasIssue = allColorIssues.length > 0;
+
+                return (
+                  <div className={`rounded-lg border overflow-hidden ${
+                    hasIssue ? 'bg-warning/5 border-warning/30' : 'bg-bambooGreen-50/60 border-bambooGreen-200'
+                  }`}>
+                    {hasIssue ? (
+                      <div>
+                        <div className="flex items-start gap-2 p-3 border-b border-warning/20">
+                          <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm font-song text-warning-dark font-semibold">
+                              检测到 {allColorIssues.length} 处配色错位
+                            </p>
+                            <p className="text-xs font-kai text-bambooBrown-600 mt-0.5">
+                              相同挑压状态的相邻区域配色不一致，可能导致露色错位
+                            </p>
+                          </div>
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto divide-y divide-warning/10">
+                          {allColorIssues.map((issue, idx) => (
+                            <div key={`color-${idx}`} className="p-2.5 hover:bg-warning/10 transition-colors">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {(issue.row !== undefined || issue.col !== undefined) && (
+                                      <span className="px-1.5 py-0.5 rounded bg-warning/15 text-warning-dark text-[10px] font-bold font-kai">
+                                        位置: {issue.row !== undefined ? `行${issue.row + 1}` : ''}
+                                        {issue.row !== undefined && issue.col !== undefined ? '，' : ''}
+                                        {issue.col !== undefined ? `列${issue.col + 1}` : ''}
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-bambooBrown-100 text-bambooBrown-700 font-kai">
+                                      {issue.type === 'color_shift' ? '配色不一致' : issue.type}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs font-song text-bambooBrown-700 mt-1">{issue.message}</p>
+                                  {issue.suggestion && (
+                                    <p className="text-[10px] font-kai text-bambooGreen-700 mt-0.5">
+                                      💡 {issue.suggestion}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-bambooGreen-600" />
+                        <p className="text-sm font-song text-bambooGreen-700">
+                          配色一致性良好，未检测到错位
+                        </p>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-bambooGreen-600" />
-                    <p className="text-sm font-song text-bambooGreen-700">
-                      配色一致性良好，未检测到位移
-                    </p>
-                  </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
           </div>
         </section>

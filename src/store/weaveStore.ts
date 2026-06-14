@@ -193,6 +193,52 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
       }
     }
 
+    // 配色错位检测：挑压相同但相邻配色不一致的情况
+    const getSimulatedColor = (r: number, c: number, val: WeaveCell): string => {
+      const seed = (r * 7 + c * 13) % 5;
+      if (val === 1) {
+        return seed === 0 ? '染色红' : seed === 1 ? '染色蓝' : '竹青';
+      }
+      return seed === 2 ? '碳化' : '本色';
+    };
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const currentVal = warpCodes[r]?.[c];
+        if (currentVal === undefined) continue;
+        const currentColor = getSimulatedColor(r, c, currentVal);
+
+        if (c < cols - 1) {
+          const rightVal = warpCodes[r]?.[c + 1];
+          const rightColor = getSimulatedColor(r, c + 1, rightVal as WeaveCell);
+          if (currentVal === rightVal && currentColor !== rightColor) {
+            errors.push({
+              type: 'color_shift',
+              row: r,
+              col: c,
+              message: `第${r + 1}行第${c + 1}列与第${c + 2}列挑压相同(=${currentVal})但配色不一致`,
+              suggestion: `挑压=${currentVal} 的区域建议统一配色，当前 ${currentColor} ↔ ${rightColor}`,
+            });
+            if (errors.filter(e => e.type === 'color_shift').length > 6) break;
+          }
+        }
+        if (r < rows - 1) {
+          const bottomVal = warpCodes[r + 1]?.[c];
+          const bottomColor = getSimulatedColor(r + 1, c, bottomVal as WeaveCell);
+          if (currentVal === bottomVal && currentColor !== bottomColor) {
+            errors.push({
+              type: 'color_shift',
+              row: r,
+              col: c,
+              message: `第${c + 1}列第${r + 1}行与第${r + 2}行挑压相同(=${currentVal})但配色不一致`,
+              suggestion: `挑压=${currentVal} 的区域建议统一配色，当前 ${currentColor} ↔ ${bottomColor}`,
+            });
+            if (errors.filter(e => e.type === 'color_shift').length > 10) break;
+          }
+        }
+      }
+      if (errors.filter(e => e.type === 'color_shift').length > 10) break;
+    }
+
     set({
       validationResult: {
         isValid: errors.length === 0,
@@ -422,7 +468,84 @@ export const useWeaveStore = create<WeaveStore>((set, get) => ({
       if (stored) {
         const templates = JSON.parse(stored) as PatternTemplate[];
         set({ templates });
+        return;
       }
+
+      // localStorage 为空时，生成并保存默认模板
+      const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+      const createMatrix = (rows: number, cols: number, pattern: string): WeaveMatrix => {
+        const warpCodes: WeaveCell[][] = [];
+        const weftCodes: WeaveCell[][] = [];
+        for (let r = 0; r < rows; r++) {
+          const warpRow: WeaveCell[] = [];
+          const weftRow: WeaveCell[] = [];
+          for (let c = 0; c < cols; c++) {
+            let val: WeaveCell = 0;
+            switch (pattern) {
+              case 'plain': val = ((r + c) % 2) as WeaveCell; break;
+              case 'hexagon': val = (((r * 2 + c) % 3) === 0 ? 1 : 0) as WeaveCell; break;
+              case 'cross': val = ((r % 2 === 0 || c % 2 === 0) ? 1 : 0) as WeaveCell; break;
+              case 'herringbone': val = (((r + Math.floor(c / 2)) % 2) as WeaveCell); break;
+              default: val = ((r * c) % 2) as WeaveCell; break;
+            }
+            warpRow.push(val);
+            weftRow.push((val === 1 ? 0 : 1) as WeaveCell);
+          }
+          warpCodes.push(warpRow);
+          weftCodes.push(weftRow);
+        }
+        return { rows, cols, cellSize: 16, warpCodes, weftCodes,
+          detectedPatterns: [{ type: pattern as any, startRow: 0, startCol: 0, width: cols, height: rows }] };
+      };
+      const genThumb = (pattern: string) => {
+        const cellSize = 15; const gridSize = 8; let rects = '';
+        for (let r = 0; r < gridSize; r++) for (let c = 0; c < gridSize; c++) {
+          let isPick = false;
+          if (pattern === 'plain') isPick = (r + c) % 2 === 0;
+          else if (pattern === 'hexagon') isPick = (r * 2 + c) % 3 === 0;
+          else if (pattern === 'cross') isPick = r % 2 === 0 || c % 2 === 0;
+          else if (pattern === 'herringbone') isPick = (r + Math.floor(c / 2)) % 2 === 0;
+          else isPick = (r * c) % 2 === 0;
+          const fill = isPick ? '#5B9D57' : '#D2BE80';
+          const stroke = isPick ? '#476E46' : '#A88B3D';
+          rects += `<rect x="${c * cellSize}" y="${r * cellSize}" width="${cellSize - 1}" height="${cellSize - 1}" rx="1" fill="${fill}" stroke="${stroke}" stroke-opacity="0.3"/>`;
+        }
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="120" height="120" fill="#F8F3E3" rx="4"/>${rects}</svg>`;
+      };
+      const defaults: PatternTemplate[] = [
+        { id: genId(), name: '经典六角孔', patternType: 'hexagon', difficulty: 3, thumbnail: genThumb('hexagon'),
+          tags: ['传统', '透气', '基础'], description: '传统六角孔编织纹样，结构稳定，透气性好，常用于竹篮、筐篓等日常器具。',
+          weaveMatrix: createMatrix(12, 12, 'hexagon'), layers: [], materials: [],
+          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+          createdAt: Date.now() - 5 * 86400000, updatedAt: Date.now() - 5 * 86400000 },
+        { id: genId(), name: '十字孔花编', patternType: 'cross', difficulty: 2, thumbnail: genThumb('cross'),
+          tags: ['入门', '简洁', '装饰'], description: '十字形孔洞编织，结构简洁，视觉效果分明，适合入门练习。',
+          weaveMatrix: createMatrix(10, 10, 'cross'), layers: [], materials: [],
+          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+          createdAt: Date.now() - 4 * 86400000, updatedAt: Date.now() - 4 * 86400000 },
+        { id: genId(), name: '人字编纹样', patternType: 'herringbone', difficulty: 4, thumbnail: genThumb('herringbone'),
+          tags: ['工艺', '纹理', '高级'], description: '人字形交错编织，纹理流畅如行云流水，常用于高级竹编工艺品。',
+          weaveMatrix: createMatrix(16, 12, 'herringbone'), layers: [], materials: [],
+          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+          createdAt: Date.now() - 3 * 86400000, updatedAt: Date.now() - 3 * 86400000 },
+        { id: genId(), name: '平编基础款', patternType: 'plain', difficulty: 1, thumbnail: genThumb('plain'),
+          tags: ['入门', '基础', '教学'], description: '最基础的一挑一压平编技法，是所有竹编的入门基础。',
+          weaveMatrix: createMatrix(8, 8, 'plain'), layers: [], materials: [],
+          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+          createdAt: Date.now() - 2 * 86400000, updatedAt: Date.now() - 2 * 86400000 },
+        { id: genId(), name: '六角孔变体', patternType: 'hexagon', difficulty: 4, thumbnail: genThumb('hexagon'),
+          tags: ['变体', '层次', '创意'], description: '在传统六角孔基础上加入变化元素，形成更富层次感的编织纹样。',
+          weaveMatrix: createMatrix(14, 14, 'hexagon'), layers: [], materials: [],
+          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+          createdAt: Date.now() - 1 * 86400000, updatedAt: Date.now() - 1 * 86400000 },
+        { id: genId(), name: '自定义组合纹', patternType: 'custom', difficulty: 5, thumbnail: genThumb('custom'),
+          tags: ['创意', '组合', '大师级'], description: '融合多种编法的自定义组合纹样，考验编织技巧与创意设计。',
+          weaveMatrix: createMatrix(16, 16, 'custom'), layers: [], materials: [],
+          params: { bambooWidth: 5, bambooGap: 1, finishedWidth: 300, finishedHeight: 300, lossRate: 1.1 },
+          createdAt: Date.now(), updatedAt: Date.now() },
+      ];
+      localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(defaults));
+      set({ templates: defaults });
     } catch (e) {
       console.error('Failed to load templates from localStorage:', e);
       set({ templates: [] });
